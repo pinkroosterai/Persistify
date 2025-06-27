@@ -1,4 +1,6 @@
-# 🐓 PinkRoosterAi.Persistify
+<img src="img/logo_transparent.png" alt="PinkRooster Logo" style="width:200px;float: left; margin-right: 10px;" />
+
+# PinkRoosterAi.Persistify
 
 **Your unstoppable, thread-safe, and extensible persistent dictionary for .NET** — here to save your data from oblivion! 🦸‍♂️✨
 
