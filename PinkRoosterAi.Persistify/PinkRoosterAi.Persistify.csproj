@@ -17,7 +17,7 @@
         <FileVersion>0.0.9</FileVersion>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageLicenseUrl>https://opensource.org/license/MIT</PackageLicenseUrl>
-        <PackageIcon>../img/logo_transparent.png</PackageIcon>
+        <PackageIcon>logo_transparent_small.png</PackageIcon>
     </PropertyGroup>
 
     <ItemGroup>
@@ -31,6 +31,16 @@
       <None Update="logo_transparent.png">
         <Pack>True</Pack>
         <PackagePath></PackagePath>
+      </None>
+      <None Include="..\img\logo_transparent.png">
+        <Pack>True</Pack>
+        <PackagePath></PackagePath>
+        <Link>logo_transparent.png</Link>
+      </None>
+      <None Include="..\img\logo_transparent_small.png">
+        <Pack>True</Pack>
+        <PackagePath></PackagePath>
+        <Link>logo_transparent_small.png</Link>
       </None>
     </ItemGroup>
 
