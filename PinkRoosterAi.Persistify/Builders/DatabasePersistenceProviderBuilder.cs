@@ -5,7 +5,7 @@ using PinkRoosterAi.Persistify.Providers;
 namespace PinkRoosterAi.Persistify.Builders;
 
 public class DatabasePersistenceProviderBuilder<TValue>
-    : IPersistenceProviderBuilder<TValue>
+    : IPersistenceProviderBuilder<TValue>, IPersistenceProviderBuilder
 {
     private TimeSpan _batchInterval = TimeSpan.Zero;
     private int _batchSize = 1;
@@ -43,7 +43,34 @@ public class DatabasePersistenceProviderBuilder<TValue>
             BatchInterval = _batchInterval
         };
         _built = true;
-        return new DatabasePersistenceProvider<TValue>(options);
+        var nonGenericProvider = new DatabasePersistenceProvider(options);
+        return new PersistenceProviderAdapter<TValue>(nonGenericProvider);
+    }
+
+    IPersistenceProvider IPersistenceProviderBuilder.Build()
+    {
+        if (_built)
+        {
+            throw new InvalidOperationException(
+                "This builder instance has already been used to build a provider. Create a new builder for each provider.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_connectionString))
+        {
+            throw new InvalidOperationException("ConnectionString must be set for DatabasePersistenceProvider.");
+        }
+
+        DatabasePersistenceOptions options = new DatabasePersistenceOptions
+        {
+            ConnectionString = _connectionString!,
+            MaxRetryAttempts = _maxRetryAttempts,
+            RetryDelay = _retryDelay,
+            ThrowOnPersistenceFailure = _throwOnPersistenceFailure,
+            BatchSize = _batchSize,
+            BatchInterval = _batchInterval
+        };
+        _built = true;
+        return new DatabasePersistenceProvider(options);
     }
 
     public DatabasePersistenceProviderBuilder<TValue> WithConnectionString(string cs)

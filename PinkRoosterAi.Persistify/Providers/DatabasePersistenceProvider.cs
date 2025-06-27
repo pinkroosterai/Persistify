@@ -8,22 +8,20 @@ using ServiceStack.OrmLite;
 namespace PinkRoosterAi.Persistify.Providers;
 
 /// <summary>
-///     Provides database persistence for PersistentDictionary using ServiceStack.OrmLite.
+/// Database persistence provider that handles different value types at runtime.
 /// </summary>
-/// <typeparam name="TValue">The type of dictionary values.</typeparam>
-public class DatabasePersistenceProvider<TValue> : IPersistenceProvider<TValue>,
-    IPersistenceMetadataProvider
+public class DatabasePersistenceProvider : IPersistenceProvider, IPersistenceProvider<object>, IPersistenceMetadataProvider
 {
     private readonly OrmLiteConnectionFactory _dbFactory;
-    private readonly ILogger<DatabasePersistenceProvider<TValue>>? _logger;
+    private readonly ILogger<DatabasePersistenceProvider>? _logger;
 
     /// <summary>
-    ///     Initializes a new instance of the <see cref="DatabasePersistenceProvider{TValue}" /> class.
+    /// Initializes a new instance of the <see cref="DatabasePersistenceProvider" /> class.
     /// </summary>
     /// <param name="options">The database persistence options.</param>
     /// <param name="logger">Optional logger for error reporting.</param>
     public DatabasePersistenceProvider(DatabasePersistenceOptions options,
-        ILogger<DatabasePersistenceProvider<TValue>>? logger = null)
+        ILogger<DatabasePersistenceProvider>? logger = null)
     {
         Options = options ?? throw new ArgumentNullException(nameof(options));
         if (string.IsNullOrWhiteSpace(Options.ConnectionString))
@@ -32,19 +30,18 @@ public class DatabasePersistenceProvider<TValue> : IPersistenceProvider<TValue>,
                 nameof(options));
         }
 
-        // TODO: Allow dialect to be specified in options or inferred from connection string.
         _dbFactory = new OrmLiteConnectionFactory(Options.ConnectionString, SqliteDialect.Provider);
         _logger = logger;
-        // Note: SqliteDialect.Provider is default; user can change if needed by extending this class or options.
     }
 
     public DatabasePersistenceOptions Options { get; }
     
-    IPersistenceOptions IPersistenceProvider<TValue>.Options => Options;
+    IPersistenceOptions IPersistenceProvider.Options => Options;
+    IPersistenceOptions IPersistenceProvider<object>.Options => Options;
 
-    public async Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(string dictionaryName,CancellationToken ct = default)
+    public async Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(string dictionaryName, CancellationToken ct = default)
     {
-        await EnsureTableExistsAsync( dictionaryName,ct).ConfigureAwait(false);
+        await EnsureTableExistsAsync(dictionaryName, ct).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(ct).ConfigureAwait(false);
         var dict = new Dictionary<string, DateTime>();
@@ -58,28 +55,25 @@ public class DatabasePersistenceProvider<TValue> : IPersistenceProvider<TValue>,
         {
             string keyString = reader.GetString(0);
             DateTime updatedAt = reader.GetDateTime(1);
-
             dict[keyString] = updatedAt;
         }
 
         return dict;
     }
 
-    /// <inheritdoc />
-    public async Task<Dictionary<string, TValue>> LoadAsync(string dictionaryName,CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, object>> LoadAsync(string dictionaryName, Type valueType, CancellationToken cancellationToken = default)
     {
-        await EnsureTableExistsAsync( dictionaryName,cancellationToken).ConfigureAwait(false);
+        await EnsureTableExistsAsync(dictionaryName, cancellationToken).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var result = new Dictionary<string, TValue>();
+        var result = new Dictionary<string, object>();
 
-        // Use the actual table name, not TableRow type
         string sql = $"SELECT {Options.KeyColumnName}, {Options.ValueColumnName} FROM {dictionaryName}";
         var rows = await db.SelectAsync<(string Key, string Value)>(sql, cancellationToken).ConfigureAwait(false);
 
         foreach ((string Key, string Value) row in rows)
         {
-            bool valueOk = TryConvertValue(row.Value, out TValue value, out Exception? valueEx);
+            bool valueOk = TryConvertValue(row.Value, valueType, out object value, out Exception? valueEx);
 
             if (valueOk)
             {
@@ -96,23 +90,20 @@ public class DatabasePersistenceProvider<TValue> : IPersistenceProvider<TValue>,
         return result;
     }
 
-    /// <inheritdoc />
-    public async Task SaveAsync(string dictionaryName,Dictionary<string, TValue> data, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(string dictionaryName, Type valueType, Dictionary<string, object> data, CancellationToken cancellationToken = default)
     {
         if (data == null)
         {
             throw new ArgumentNullException(nameof(data));
         }
 
-        await EnsureTableExistsAsync( dictionaryName,cancellationToken).ConfigureAwait(false);
+        await EnsureTableExistsAsync(dictionaryName, cancellationToken).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        // Use async transaction
         using IDbTransaction transaction = db.BeginTransaction();
 
         try
         {
-            // Collect all keys in the input data
             var inputKeys = new HashSet<string>(data.Keys);
 
             string Quote(string ident)
@@ -120,11 +111,11 @@ public class DatabasePersistenceProvider<TValue> : IPersistenceProvider<TValue>,
                 return "\"" + ident.Replace("\"", "\"\"") + "\"";
             }
 
-            // Use UPSERT (ON CONFLICT) for each row to avoid round-trips
+            // Use UPSERT for each row
             foreach (var kvp in data)
             {
                 string keyString = kvp.Key;
-                string valueString = SerializeValue(kvp.Value);
+                string valueString = SerializeValue(kvp.Value, valueType);
 
                 string upsertSql = $@"
 INSERT INTO {Quote(dictionaryName)} ({Quote(Options.KeyColumnName)}, {Quote(Options.ValueColumnName)}, CreatedAt, UpdatedAt)
@@ -161,24 +152,44 @@ ON CONFLICT({Quote(Options.KeyColumnName)}) DO UPDATE SET
         }
     }
 
-    /// <inheritdoc />
-    public async Task<bool> ExistsAsync(string dictionaryName,CancellationToken cancellationToken = default)
+    public async Task<bool> ExistsAsync(string dictionaryName, CancellationToken cancellationToken = default)
     {
-        await EnsureTableExistsAsync( dictionaryName,cancellationToken).ConfigureAwait(false);
+        await EnsureTableExistsAsync(dictionaryName, cancellationToken).ConfigureAwait(false);
         return true;
     }
 
-    /// <summary>
-    ///     Ensures the persistence table exists, creating it if necessary.
-    ///     Uses "CREATE TABLE IF NOT EXISTS" for atomicity.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
-    private async Task EnsureTableExistsAsync(string dictionaryName,CancellationToken cancellationToken = default)
+    public PersistentDictionary<TValue> CreateDictionary<TValue>(string dictionaryName, ILogger<PersistentDictionary<TValue>>? logger = null)
+    {
+        var adapter = new PersistenceProviderAdapter<TValue>(this);
+        return logger is null ? new PersistentDictionary<TValue>(adapter, dictionaryName)
+                              : new PersistentDictionary<TValue>(adapter, dictionaryName, logger);
+    }
+
+    public CachingPersistentDictionary<TValue> CreateCachingDictionary<TValue>(string dictionaryName, TimeSpan ttl, 
+                      ILogger<PersistentDictionary<TValue>>? logger = null)
+    {
+        var adapter = new PersistenceProviderAdapter<TValue>(this);
+        return logger is null ? new CachingPersistentDictionary<TValue>(adapter, dictionaryName, ttl)
+                              : new CachingPersistentDictionary<TValue>(adapter, dictionaryName, ttl, logger);
+    }
+
+    // Legacy support for generic interface
+    async Task<Dictionary<string, object>> IPersistenceProvider<object>.LoadAsync(string dictionaryName, CancellationToken cancellationToken)
+        => await LoadAsync(dictionaryName, typeof(object), cancellationToken).ConfigureAwait(false);
+
+    async Task IPersistenceProvider<object>.SaveAsync(string dictionaryName, Dictionary<string, object> data, CancellationToken cancellationToken)
+        => await SaveAsync(dictionaryName, typeof(object), data, cancellationToken).ConfigureAwait(false);
+
+    PersistentDictionary<object> IPersistenceProvider<object>.CreateDictionary(string dictionaryName, ILogger<PersistentDictionary<object>>? logger)
+        => CreateDictionary<object>(dictionaryName, logger);
+
+    CachingPersistentDictionary<object> IPersistenceProvider<object>.CreateCachingDictionary(string dictionaryName, TimeSpan ttl, ILogger<PersistentDictionary<object>>? logger)
+        => CreateCachingDictionary<object>(dictionaryName, ttl, logger);
+
+    private async Task EnsureTableExistsAsync(string dictionaryName, CancellationToken cancellationToken = default)
     {
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        // Use CREATE TABLE IF NOT EXISTS for atomic table creation
         string Quote(string ident)
         {
             return "\"" + ident.Replace("\"", "\"\"") + "\"";
@@ -194,26 +205,25 @@ CREATE TABLE IF NOT EXISTS {Quote(dictionaryName)} (
         await db.ExecuteNonQueryAsync(createTableSql, cancellationToken).ConfigureAwait(false);
     }
 
-
-    private bool TryConvertValue(string valueString, out TValue value, out Exception? error)
+    private bool TryConvertValue(string valueString, Type valueType, out object value, out Exception? error)
     {
-        value = default!;
+        value = null!;
         error = null;
         try
         {
-            if (typeof(TValue) == typeof(string))
+            if (valueType == typeof(string))
             {
-                value = (TValue)(object)valueString!;
+                value = valueString!;
                 return true;
             }
 
-            if (typeof(TValue).IsEnum)
+            if (valueType.IsEnum)
             {
-                value = (TValue)Enum.Parse(typeof(TValue), valueString!);
+                value = Enum.Parse(valueType, valueString!);
                 return true;
             }
 
-            value = JsonSerializer.Deserialize<TValue>(valueString)!;
+            value = JsonSerializer.Deserialize(valueString, valueType)!;
             return true;
         }
         catch (Exception ex)
@@ -223,7 +233,7 @@ CREATE TABLE IF NOT EXISTS {Quote(dictionaryName)} (
         }
     }
 
-    private string SerializeValue(TValue value)
+    private string SerializeValue(object value, Type valueType)
     {
         if (value == null)
         {
@@ -235,33 +245,11 @@ CREATE TABLE IF NOT EXISTS {Quote(dictionaryName)} (
             return s;
         }
 
-        if (value.GetType().IsEnum)
+        if (valueType.IsEnum)
         {
             return value.ToString() ?? string.Empty;
         }
 
         return JsonSerializer.Serialize(value);
-    }
-
-    public PersistentDictionary<TValue> CreateDictionary(string dictionaryName,ILogger<PersistentDictionary<TValue>>? logger = null)
-        => logger is null ? new PersistentDictionary<TValue>(this, dictionaryName)
-                          : new PersistentDictionary<TValue>(this,dictionaryName, logger);
-
-    public CachingPersistentDictionary<TValue> CreateCachingDictionary(string dictionaryName,TimeSpan ttl, 
-                          ILogger<PersistentDictionary<TValue>>? logger = null)
-        => logger is null ? new CachingPersistentDictionary<TValue>(this,dictionaryName, ttl)
-                          : new CachingPersistentDictionary<TValue>(this,dictionaryName, ttl, logger);
-
-    private class TableRow
-    {
-        public string Key { get; set; } = string.Empty;
-        public string Value { get; set; } = string.Empty;
-        public DateTime CreatedAt { get; set; }
-        public DateTime UpdatedAt { get; set; }
-    }
-
-    public Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(CancellationToken ct = default)
-    {
-        throw new NotImplementedException();
     }
 }

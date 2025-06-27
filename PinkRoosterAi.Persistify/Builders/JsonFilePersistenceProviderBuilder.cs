@@ -6,7 +6,7 @@ using PinkRoosterAi.Persistify.Providers;
 namespace PinkRoosterAi.Persistify.Builders;
 
 public class JsonFilePersistenceProviderBuilder<TValue>
-    : IPersistenceProviderBuilder<TValue>
+    : IPersistenceProviderBuilder<TValue>, IPersistenceProviderBuilder
 {
     private TimeSpan _batchInterval = TimeSpan.Zero;
     private int _batchSize = 1;
@@ -52,7 +52,44 @@ public class JsonFilePersistenceProviderBuilder<TValue>
             BatchInterval = _batchInterval
         };
         _built = true;
-        return new JsonFilePersistenceProvider<TValue>(options);
+        var nonGenericProvider = new JsonFilePersistenceProvider(options);
+        return new PersistenceProviderAdapter<TValue>(nonGenericProvider);
+    }
+
+    IPersistenceProvider IPersistenceProviderBuilder.Build()
+    {
+        if (_built)
+        {
+            throw new InvalidOperationException(
+                "This builder instance has already been used to build a provider. Create a new builder for each provider.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_filePath))
+        {
+            throw new InvalidOperationException("FilePath must be set for JsonFilePersistenceProvider.");
+        }
+
+        try
+        {
+            string fullPath = Path.GetFullPath(_filePath!);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("FilePath is not a valid path for JsonFilePersistenceProvider.", ex);
+        }
+
+        JsonFilePersistenceOptions options = new JsonFilePersistenceOptions
+        {
+            FilePath = _filePath!,
+            SerializerOptions = _serializerOptions,
+            MaxRetryAttempts = _maxRetryAttempts,
+            RetryDelay = _retryDelay,
+            ThrowOnPersistenceFailure = _throwOnPersistenceFailure,
+            BatchSize = _batchSize,
+            BatchInterval = _batchInterval
+        };
+        _built = true;
+        return new JsonFilePersistenceProvider(options);
     }
 
     public JsonFilePersistenceProviderBuilder<TValue> WithFilePath(string path)

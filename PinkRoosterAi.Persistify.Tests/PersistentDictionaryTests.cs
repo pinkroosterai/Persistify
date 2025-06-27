@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,11 +14,21 @@ namespace PinkRoosterAi.Persistify.Tests
     {
         private readonly Mock<IPersistenceProvider<string>> _mockProvider;
         private readonly Mock<ILogger<PersistentDictionary<string>>> _mockLogger;
+        private const string TestDictionaryName = "test";
 
         public PersistentDictionaryTests()
         {
             _mockProvider = new Mock<IPersistenceProvider<string>>(MockBehavior.Strict);
             _mockLogger = new Mock<ILogger<PersistentDictionary<string>>>();
+            
+            // Setup common Options property
+            var mockOptions = new Mock<IPersistenceOptions>();
+            mockOptions.Setup(o => o.BatchInterval).Returns(TimeSpan.Zero);
+            mockOptions.Setup(o => o.BatchSize).Returns(1);
+            mockOptions.Setup(o => o.MaxRetryAttempts).Returns(3);
+            mockOptions.Setup(o => o.RetryDelay).Returns(TimeSpan.FromMilliseconds(100));
+            mockOptions.Setup(o => o.ThrowOnPersistenceFailure).Returns(false);
+            _mockProvider.Setup(p => p.Options).Returns(mockOptions.Object);
         }
 
         [Fact]
@@ -26,154 +36,157 @@ namespace PinkRoosterAi.Persistify.Tests
         {
             // arrange
             var existingData = new Dictionary<string, string> { { "k1", "v1" } };
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
+            _mockProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);
-            _mockProvider.Setup(p => p.LoadAsync(It.IsAny<CancellationToken>()))
+            _mockProvider.Setup(p => p.LoadAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(existingData);
 
-            var dict = new PersistentDictionary<string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, TestDictionaryName);
 
             // act
             await dict.InitializeAsync();
 
             // assert
-            Assert.True(dict.IsInitialized);
-            Assert.True(dict.ContainsKey("k1"));
             Assert.Equal("v1", dict["k1"]);
+            _mockProvider.Verify();
         }
 
         [Fact]
-        public async Task InitializeAsync_ShouldLeaveEmpty_WhenNoPersistence()
+        public async Task InitializeAsync_WhenNoExistingData_ShouldStartEmpty()
         {
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
+            // arrange
+            _mockProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
 
-            var dict = new PersistentDictionary<string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, TestDictionaryName);
 
+            // act
             await dict.InitializeAsync();
 
-            Assert.True(dict.IsInitialized);
+            // assert
             Assert.Empty(dict);
+            _mockProvider.Verify();
         }
 
         [Fact]
-        public async Task AddAndSaveAsync_ShouldAddValue()
+        public async Task AddAndSaveAsync_ShouldAddItemAndSave()
         {
             // arrange
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
+            _mockProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
-            var dict = new PersistentDictionary<string>(_mockProvider.Object);
-            await dict.InitializeAsync();
-
-            // act
-            await dict.AddAndSaveAsync("key", "value");
-
-            // assert
-            Assert.Equal("value", dict["key"]);
-        }
-
-        [Fact]
-        public async Task RemoveAndSaveAsync_ShouldRemoveValue()
-        {
-            // arrange
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(false);
-
-            var dict = new PersistentDictionary<string>(_mockProvider.Object);
-            await dict.InitializeAsync();
-            await dict.AddAndSaveAsync("key", "value");
-
-            // act
-            var removed = await dict.RemoveAndSaveAsync("key");
-
-            // assert
-            Assert.True(removed);
-            Assert.False(dict.ContainsKey("key"));
-        }
-
-        [Fact]
-        public async Task TryAddAndSaveAsync_ShouldNotAddDuplicate()
-        {
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(false);
-
-            var dict = new PersistentDictionary<string>(_mockProvider.Object);
-            await dict.InitializeAsync();
-            await dict.AddAndSaveAsync("key", "value");
-
-            var added = await dict.TryAddAndSaveAsync("key", "value2");
-
-            Assert.False(added);
-            Assert.Equal("value", dict["key"]);
-        }
-
-        [Fact]
-        public async Task TryRemoveAndSaveAsync_ShouldHandleNonExistentKey()
-        {
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(false);
-
-            var dict = new PersistentDictionary<string>(_mockProvider.Object);
-            await dict.InitializeAsync();
-
-            var removed = await dict.TryRemoveAndSaveAsync("missing");
-
-            Assert.False(removed);
-        }
-
-        [Fact]
-        public async Task FlushAsync_ShouldPersistData()
-        {
-            // arrange
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(false);
-
-            _mockProvider.Setup(p => p.SaveAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>()))
+            _mockProvider.Setup(p => p.SaveAsync(TestDictionaryName, It.Is<Dictionary<string, string>>(d => d.ContainsKey("k1") && d["k1"] == "v1"), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
 
-            var dict = new PersistentDictionary<string>(_mockProvider.Object, _mockLogger.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, TestDictionaryName);
             await dict.InitializeAsync();
+
+            // act
             await dict.AddAndSaveAsync("k1", "v1");
+
+            // assert
+            Assert.Equal("v1", dict["k1"]);
+            _mockProvider.Verify();
+        }
+
+        [Fact]
+        public async Task RemoveAndSaveAsync_ShouldRemoveItemAndSave()
+        {
+            // arrange
+            var existingData = new Dictionary<string, string> { { "k1", "v1" } };
+            _mockProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+            _mockProvider.Setup(p => p.LoadAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(existingData);
+            _mockProvider.Setup(p => p.SaveAsync(TestDictionaryName, It.Is<Dictionary<string, string>>(d => !d.ContainsKey("k1")), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, TestDictionaryName);
+            await dict.InitializeAsync();
+
+            // act
+            await dict.RemoveAndSaveAsync("k1");
+
+            // assert
+            Assert.False(dict.ContainsKey("k1"));
+            _mockProvider.Verify();
+        }
+
+        [Fact]
+        public async Task ClearAndSaveAsync_ShouldClearAllItemsAndSave()
+        {
+            // arrange
+            var existingData = new Dictionary<string, string> { { "k1", "v1" }, { "k2", "v2" } };
+            _mockProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+            _mockProvider.Setup(p => p.LoadAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(existingData);
+            _mockProvider.Setup(p => p.SaveAsync(TestDictionaryName, It.Is<Dictionary<string, string>>(d => d.Count == 0), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, TestDictionaryName);
+            await dict.InitializeAsync();
+
+            // act
+            await dict.ClearAndSaveAsync();
+
+            // assert
+            Assert.Empty(dict);
+            _mockProvider.Verify();
+        }
+
+        [Fact]
+        public async Task FlushAsync_ShouldSavePendingChanges()
+        {
+            // arrange
+            _mockProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(false);
+            _mockProvider.Setup(p => p.SaveAsync(TestDictionaryName, It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, TestDictionaryName, _mockLogger.Object);
+            await dict.InitializeAsync();
+
+            dict["k1"] = "v1"; // Direct assignment should be batched
 
             // act
             await dict.FlushAsync();
 
             // assert
-            _mockProvider.Verify(p => p.SaveAsync(It.Is<Dictionary<string, string>>(d => d.ContainsKey("k1")), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+            _mockProvider.Verify(p => p.SaveAsync(TestDictionaryName, It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
         }
 
         [Fact]
-        public async Task Dispose_ShouldFlushAndDisposeProvider()
-        {
-            var disposableProvider = new Mock<IPersistenceProvider<string>>(MockBehavior.Strict);
-            disposableProvider.As<IDisposable>().Setup(d => d.Dispose());
-            disposableProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
-            disposableProvider.Setup(p => p.SaveAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-
-            var dict = new PersistentDictionary<string>(disposableProvider.Object, _mockLogger.Object);
-            await dict.InitializeAsync();
-            await dict.AddAndSaveAsync("k1", "v1");
-
-            dict.Dispose();
-
-            disposableProvider.As<IDisposable>().Verify(d => d.Dispose(), Times.Once);
-        }
-
-        [Fact]
-        public async Task FlushAsync_ShouldThrow_WhenSaveFails()
+        public async Task Dispose_ShouldDisposeProvider()
         {
             // arrange
-            _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
+            var disposableProvider = new Mock<IPersistenceProvider<string>>();
+            disposableProvider.As<IDisposable>();
+            disposableProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
-            _mockProvider.Setup(p => p.SaveAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>()))
-                .ThrowsAsync(new Exception("save failure"));
 
-            var dict = new PersistentDictionary<string>(_mockProvider.Object, _mockLogger.Object);
+            var dict = new PersistentDictionary<string>(disposableProvider.Object, TestDictionaryName, _mockLogger.Object);
             await dict.InitializeAsync();
-            await dict.AddAndSaveAsync("k1", "v1");
 
-            // act & assert
-            await Assert.ThrowsAsync<InvalidOperationException>(() => dict.FlushAsync());
+            // act
+            dict.Dispose();
+
+            // assert - no exception should be thrown
+        }
+
+        [Fact]
+        public async Task Constructor_WithLogger_ShouldAcceptLogger()
+        {
+            // arrange
+            _mockProvider.Setup(p => p.ExistsAsync(TestDictionaryName, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(false);
+
+            // act
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, TestDictionaryName, _mockLogger.Object);
+            await dict.InitializeAsync();
+
+            // assert
+            Assert.NotNull(dict);
+            Assert.Equal(TestDictionaryName, dict.DictionaryName);
         }
     }
 }

@@ -178,12 +178,7 @@ public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposa
 
     private IPersistenceOptions? GetPersistenceOptions()
     {
-        return PersistenceProvider switch
-        {
-            JsonFilePersistenceProvider<TValue> jsonProvider => jsonProvider.Options,
-            DatabasePersistenceProvider<TValue> dbProvider => dbProvider.Options,
-            _ => null
-        };
+        return PersistenceProvider?.Options;
     }
 
     /// <summary>
