@@ -4,20 +4,23 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <Version>0.9</Version>
+        <Version>0.9.0</Version>
         <Title>Persistify</Title>
         <Authors>Jan Versteeg</Authors>
         <Description>A robust, thread-safe, and extensible persistent dictionary library for .NET, designed to make data persistence seamless and reliable. PinkRoosterAi.Persistify provides asynchronous, batched, and retryable persistence for key-value data, supporting both JSON file and database backends.</Description>
-        <Copyright>PinkRoosterAI</Copyright>
+        <Copyright>Copyright (c) PinkRoosterAI 2025.</Copyright>
         <PackageProjectUrl>https://github.com/pinkroosterai/Persistify</PackageProjectUrl>
         <RepositoryUrl>https://github.com/pinkroosterai/Persistify</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
         <PackageReleaseNotes>First release, still in early beta</PackageReleaseNotes>
         <Company>PinkRoosterAI</Company>
         <AssemblyVersion>0.0.9</AssemblyVersion>
         <FileVersion>0.0.9</FileVersion>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-        <PackageLicenseUrl>https://opensource.org/license/MIT</PackageLicenseUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageIcon>logo_transparent_small.png</PackageIcon>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageTags>persistent;dictionary;cache;json;database;async;thread-safe;dotnet</PackageTags>
     </PropertyGroup>
 
     <ItemGroup>
@@ -42,6 +45,7 @@
         <PackagePath></PackagePath>
         <Link>logo_transparent_small.png</Link>
       </None>
+      <None Include="README.md" Pack="true" PackagePath="" />
     </ItemGroup>
 
 </Project>
