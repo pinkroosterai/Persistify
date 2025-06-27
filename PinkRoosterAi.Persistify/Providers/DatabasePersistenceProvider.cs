@@ -48,7 +48,7 @@ public class DatabasePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<TKey, TValue>();
 
-        var rows = await db.SelectAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await db.SelectAsync<TableRow>(cancellationToken).ConfigureAwait(false);
         foreach (var row in rows)
         {
             bool keyOk = TryConvertKey(row.Key, out TKey key, out Exception? keyEx);
