@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PinkRoosterAi.Persistify", "PinkRoosterAi.Persistify\PinkRoosterAi.Persistify.csproj", "{884F9464-3631-4724-AC4F-BE932FDB145F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PinkRoosterAi.Persistify.Tests", "PinkRoosterAi.Persistify.Tests\PinkRoosterAi.Persistify.Tests.csproj", "{AABCB169-5312-4777-8A06-9EBDFFEC32BA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PinkRoosterAi.Persistify.Samples", "PinkRoosterAi.Persistify.Samples\PinkRoosterAi.Persistify.Samples.csproj", "{53EAB839-B65A-40DB-A776-E05031D3FD4E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{884F9464-3631-4724-AC4F-BE932FDB145F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{884F9464-3631-4724-AC4F-BE932FDB145F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{884F9464-3631-4724-AC4F-BE932FDB145F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{884F9464-3631-4724-AC4F-BE932FDB145F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AABCB169-5312-4777-8A06-9EBDFFEC32BA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AABCB169-5312-4777-8A06-9EBDFFEC32BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AABCB169-5312-4777-8A06-9EBDFFEC32BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AABCB169-5312-4777-8A06-9EBDFFEC32BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{53EAB839-B65A-40DB-A776-E05031D3FD4E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{53EAB839-B65A-40DB-A776-E05031D3FD4E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{53EAB839-B65A-40DB-A776-E05031D3FD4E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{53EAB839-B65A-40DB-A776-E05031D3FD4E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

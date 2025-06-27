@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Version>0.9</Version>
+        <Title>Persistify</Title>
+        <Authors>Jan Versteeg</Authors>
+        <Description>A robust, thread-safe, and extensible persistent dictionary library for .NET, designed to make data persistence seamless and reliable. PinkRoosterAi.Persistify provides asynchronous, batched, and retryable persistence for key-value data, supporting both JSON file and database backends.</Description>
+        <Copyright>PinkRoosterAI</Copyright>
+        <PackageProjectUrl>https://github.com/pinkroosterai/Persistify</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/pinkroosterai/Persistify</RepositoryUrl>
+        <PackageReleaseNotes>First release, still in early beta</PackageReleaseNotes>
+        <Company>PinkRoosterAI</Company>
+        <AssemblyVersion>0.0.9</AssemblyVersion>
+        <FileVersion>0.0.9</FileVersion>
+        <PublicSign>true</PublicSign>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.6"/>
+        <PackageReference Include="Polly" Version="8.6.1"/>
+        <PackageReference Include="ServiceStack.OrmLite.PostgreSQL" Version="8.8.0"/>
+        <PackageReference Include="ServiceStack.OrmLite.Sqlite" Version="8.8.0"/>
+    </ItemGroup>
+
+</Project>
