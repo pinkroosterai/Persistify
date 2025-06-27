@@ -3,6 +3,7 @@
 using System;
 using System.Threading.Tasks;
 using PinkRoosterAi.Persistify;
+using PinkRoosterAi.Persistify.Abstractions;
 using PinkRoosterAi.Persistify.Builders;
 
 class Program
@@ -16,11 +17,11 @@ class Program
         // Why it's cool: Simplifies local data storage with human-readable files, supports batching for performance, and ensures data durability with minimal code.
         Console.WriteLine("\n--- JSON-Backed Persistence ---");
         var jsonProvider = PersistenceProviderBuilder.JsonFile<int>()
-            .WithFilePath("persistify_data.json")
+            .WithFilePath("./persistify_data")
             .WithBatch(batchSize: 3, batchInterval: TimeSpan.FromSeconds(5))
             .Build();
 
-        var jsonDict = new PersistentDictionary<int>(jsonProvider);
+        var jsonDict = jsonProvider.CreateDictionary("sample-dict");
         await jsonDict.InitializeAsync();
 
         Console.WriteLine("Adding values to JSON dictionary...");
@@ -44,12 +45,10 @@ class Program
         Console.WriteLine("\n--- Database-Backed Persistence ---");
         var dbProvider = PersistenceProviderBuilder.Database<int>()
             .WithConnectionString("Data Source=sample.db;")
-            .WithTableName("SampleTable")
-            .WithColumns("Key", "Value")
             .WithBatch(batchSize: 2, batchInterval: TimeSpan.FromSeconds(3))
             .Build();
 
-        var dbDict = new PersistentDictionary<int>(dbProvider);
+        var dbDict = dbProvider.CreateDictionary("SampleTable");
         await dbDict.InitializeAsync();
 
         Console.WriteLine("Adding values to DB dictionary...");
@@ -76,7 +75,7 @@ class Program
             .ThrowOnFailure(false)
             .Build();
 
-        var badDict = new PersistentDictionary<int>(badJsonProvider);
+        var badDict = badJsonProvider.CreateDictionary("bad-dict");
         badDict.PersistenceError += (sender, e) =>
         {
             Console.WriteLine($"Persistence error on operation {e.Operation}, attempt {e.RetryAttempt}, fatal: {e.IsFatal}");
@@ -97,11 +96,11 @@ class Program
         // Why it's cool: Significantly improves performance by reducing I/O operations, ideal for high-throughput scenarios.
         Console.WriteLine("\n--- Batched Commits ---");
         var batchProvider = PersistenceProviderBuilder.JsonFile<int>()
-            .WithFilePath("batch_data.json")
+            .WithFilePath("./batch_data")
             .WithBatch(batchSize: 3, batchInterval: TimeSpan.FromSeconds(5))
             .Build();
 
-        var batchDict = new PersistentDictionary<int>(batchProvider);
+        var batchDict = batchProvider.CreateDictionary("batch-dict");
         await batchDict.InitializeAsync();
 
         Console.WriteLine("Performing quick mutations...");
@@ -124,10 +123,10 @@ class Program
         // Why it's cool: Combines fast in-memory access with persistence, ensuring data freshness and reducing load on storage backends.
         Console.WriteLine("\n--- In-Memory Caching with TTL Eviction ---");
         var cacheProvider = PersistenceProviderBuilder.JsonFile<int>()
-            .WithFilePath("cache_data.json")
+            .WithFilePath("./cache_data")
             .Build();
 
-        var cacheDict = new CachingPersistentDictionary<int>(cacheProvider, TimeSpan.FromSeconds(10));
+        var cacheDict = cacheProvider.CreateCachingDictionary("cache-dict", TimeSpan.FromSeconds(10));
         await cacheDict.InitializeAsync();
 
         Console.WriteLine("Adding and accessing keys...");

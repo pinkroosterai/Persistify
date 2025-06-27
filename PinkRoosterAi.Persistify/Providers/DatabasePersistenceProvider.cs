@@ -1,5 +1,6 @@
 using System.Data;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using PinkRoosterAi.Persistify.Abstractions;
 using PinkRoosterAi.Persistify.Options;
@@ -12,6 +13,7 @@ namespace PinkRoosterAi.Persistify.Providers;
 /// </summary>
 public class DatabasePersistenceProvider : IPersistenceProvider, IPersistenceProvider<object>, IPersistenceMetadataProvider
 {
+    private static readonly Regex ValidTableNameRegex = new(@"^[a-zA-Z_][a-zA-Z0-9_]*$", RegexOptions.Compiled);
     private readonly OrmLiteConnectionFactory _dbFactory;
     private readonly ILogger<DatabasePersistenceProvider>? _logger;
 
@@ -41,6 +43,7 @@ public class DatabasePersistenceProvider : IPersistenceProvider, IPersistencePro
 
     public async Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(string dictionaryName, CancellationToken ct = default)
     {
+        ValidateDictionaryName(dictionaryName);
         await EnsureTableExistsAsync(dictionaryName, ct).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(ct).ConfigureAwait(false);
@@ -63,6 +66,7 @@ public class DatabasePersistenceProvider : IPersistenceProvider, IPersistencePro
 
     public async Task<Dictionary<string, object>> LoadAsync(string dictionaryName, Type valueType, CancellationToken cancellationToken = default)
     {
+        ValidateDictionaryName(dictionaryName);
         await EnsureTableExistsAsync(dictionaryName, cancellationToken).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -96,7 +100,8 @@ public class DatabasePersistenceProvider : IPersistenceProvider, IPersistencePro
         {
             throw new ArgumentNullException(nameof(data));
         }
-
+        
+        ValidateDictionaryName(dictionaryName);
         await EnsureTableExistsAsync(dictionaryName, cancellationToken).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -154,6 +159,7 @@ ON CONFLICT({Quote(Options.KeyColumnName)}) DO UPDATE SET
 
     public async Task<bool> ExistsAsync(string dictionaryName, CancellationToken cancellationToken = default)
     {
+        ValidateDictionaryName(dictionaryName);
         await EnsureTableExistsAsync(dictionaryName, cancellationToken).ConfigureAwait(false);
         return true;
     }
@@ -186,6 +192,22 @@ ON CONFLICT({Quote(Options.KeyColumnName)}) DO UPDATE SET
     CachingPersistentDictionary<object> IPersistenceProvider<object>.CreateCachingDictionary(string dictionaryName, TimeSpan ttl, ILogger<PersistentDictionary<object>>? logger)
         => CreateCachingDictionary<object>(dictionaryName, ttl, logger);
 
+    private static void ValidateDictionaryName(string dictionaryName)
+    {
+        if (string.IsNullOrWhiteSpace(dictionaryName))
+        {
+            throw new ArgumentException("Dictionary name cannot be null or whitespace.", nameof(dictionaryName));
+        }
+        
+        if (!ValidTableNameRegex.IsMatch(dictionaryName))
+        {
+            throw new ArgumentException(
+                $"Invalid dictionary name '{dictionaryName}'. Must be a valid SQL identifier: " +
+                "start with letter or underscore, contain only letters, numbers, and underscores.", 
+                nameof(dictionaryName));
+        }
+    }
+    
     private async Task EnsureTableExistsAsync(string dictionaryName, CancellationToken cancellationToken = default)
     {
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);

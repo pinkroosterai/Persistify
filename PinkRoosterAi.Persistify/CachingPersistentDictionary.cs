@@ -4,25 +4,35 @@ using PinkRoosterAi.Persistify.Abstractions;
 
 namespace PinkRoosterAi.Persistify;
 
-public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>, IDisposable
+public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>, IAsyncDisposable
 {
     private readonly object _cacheLock = new object();
     private readonly Dictionary<string, DateTime> _lastReadAt = new Dictionary<string, DateTime>();
     private readonly Dictionary<string, DateTime> _lastUpdatedAt = new Dictionary<string, DateTime>();
     private readonly TimeSpan _ttl;
+    private readonly Timer _cleanupTimer;
+    private bool _disposed;
 
     public CachingPersistentDictionary(IPersistenceProvider<TValue> persistenceProvider, string dictionaryName,
         TimeSpan cachedTimeBeforeEviction)
         : base(persistenceProvider,dictionaryName)
     {
+        if (cachedTimeBeforeEviction <= TimeSpan.Zero)
+            throw new ArgumentException("TTL must be positive.", nameof(cachedTimeBeforeEviction));
+            
         _ttl = cachedTimeBeforeEviction;
+        _cleanupTimer = new Timer(CleanupCallback, null, _ttl, _ttl);
     }
 
     public CachingPersistentDictionary(IPersistenceProvider<TValue> persistenceProvider,string dictionaryName,
         TimeSpan cachedTimeBeforeEviction,  ILogger<PersistentDictionary<TValue>>? logger)
         : base(persistenceProvider,dictionaryName, logger)
     {
+        if (cachedTimeBeforeEviction <= TimeSpan.Zero)
+            throw new ArgumentException("TTL must be positive.", nameof(cachedTimeBeforeEviction));
+            
         _ttl = cachedTimeBeforeEviction;
+        _cleanupTimer = new Timer(CleanupCallback, null, _ttl, _ttl);
     }
 
     public new async Task InitializeAsync(CancellationToken ct = default)
@@ -89,30 +99,86 @@ public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>,
             return;
         }
 
-        // _syncRoot is protected in base
-        FieldInfo? syncRootField =
-            typeof(PersistentDictionary<TValue>).GetField("_syncRoot",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-        object syncRoot = syncRootField?.GetValue(this) ?? this;
-
-        lock (syncRoot)
+        // Use proper synchronization without reflection
+        lock (_cacheLock)
         {
-            lock (_cacheLock)
+            foreach (string key in toRemove)
             {
-                foreach (string key in toRemove)
+                if (ContainsKey(key))
                 {
                     Remove(key);
-                    _lastReadAt.Remove(key);
-                    _lastUpdatedAt.Remove(key);
                 }
+                _lastReadAt.Remove(key);
+                _lastUpdatedAt.Remove(key);
             }
         }
 
-        foreach (string key in toRemove) _ = RemoveAndSaveAsync(key); // fire-and-forget
+        // Handle persistence properly instead of fire-and-forget
+        var persistenceTasks = toRemove.Select(async key => 
+        {
+            try
+            {
+                await RemoveAndSaveAsync(key).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Log but don't rethrow to avoid breaking eviction
+                Console.WriteLine($"Failed to persist removal of key '{key}': {ex.Message}");
+            }
+        });
+        
+        _ = Task.WhenAll(persistenceTasks); // Still fire-and-forget but with proper error handling
     }
 
+    private void CleanupCallback(object? state)
+    {
+        try
+        {
+            EvictExpiredEntries();
+        }
+        catch (Exception ex)
+        {
+            // Log error but don't crash the timer
+            Console.WriteLine($"Error during scheduled cleanup: {ex.Message}");
+        }
+    }
+    
     public new virtual async Task<bool> RemoveAndSaveAsync(string key, CancellationToken cancellationToken = default)
     {
-        return await base.RemoveAndSaveAsync(key, cancellationToken);
+        var result = await base.RemoveAndSaveAsync(key, cancellationToken).ConfigureAwait(false);
+        
+        // Clean up tracking metadata when item is removed
+        lock (_cacheLock)
+        {
+            _lastReadAt.Remove(key);
+            _lastUpdatedAt.Remove(key);
+        }
+        
+        return result;
+    }
+    
+    public new async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+            
+        try
+        {
+            _cleanupTimer?.Dispose();
+            await base.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _disposed = true;
+        }
+    }
+    
+    protected override void Dispose(bool disposing)
+    {
+        if (!_disposed && disposing)
+        {
+            _cleanupTimer?.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }

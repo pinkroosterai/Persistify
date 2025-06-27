@@ -18,9 +18,9 @@ namespace PinkRoosterAi.Persistify;
 ///     This class is thread-safe for concurrent reads and writes.
 ///     All mutation methods are asynchronous and should be awaited to ensure persistence.
 ///     The dictionary must be initialized by calling <see cref="InitializeAsync" /> before use.
-///     Implements <see cref="IDisposable" /> to flush pending changes and dispose the underlying persistence provider.
+///     Implements <see cref="IAsyncDisposable" /> to flush pending changes and dispose the underlying persistence provider.
 /// </remarks>
-public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposable
+public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IAsyncDisposable, IDisposable
 {
     public string DictionaryName { get; }
     private readonly object _batchLock = new object();
@@ -46,7 +46,7 @@ public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposa
     public PersistentDictionary(IPersistenceProvider<TValue> persistenceProvider, string dictionaryName)
     {
         
-        DictionaryName=SanatizeDictionaryName(dictionaryName);
+        DictionaryName = SanitizeDictionaryName(dictionaryName);
         PersistenceProvider = persistenceProvider ?? throw new ArgumentNullException(nameof(persistenceProvider));
         IPersistenceOptions? opts = GetPersistenceOptions();
         if (opts?.BatchInterval > TimeSpan.Zero)
@@ -55,11 +55,21 @@ public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposa
             {
                 AutoReset = false
             };
-            _batchTimer.Elapsed += async (_, __) => await FlushInternalAsync().ConfigureAwait(false);
+            _batchTimer.Elapsed += async (_, __) => 
+            {
+                try
+                {
+                    await FlushInternalAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Exception during timer-triggered FlushInternalAsync.");
+                }
+            };
         }
     }
 
-    private string? SanatizeDictionaryName(string dictionaryName)
+    private string SanitizeDictionaryName(string dictionaryName)
     {
         if (string.IsNullOrWhiteSpace(dictionaryName))
             throw new ArgumentException("Dictionary name cannot be null or whitespace.", nameof(dictionaryName));
@@ -565,29 +575,14 @@ public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposa
 
         if (disposing)
         {
-            // flush any buffered mutations before disposing
-            if (_pendingCount > 0)
-            {
-                try
-                {
-                    FlushAsync().GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogError(ex, "Exception during FlushAsync in Dispose.");
-                }
-            }
+            // Synchronous dispose - fire and forget cleanup (not recommended)
+            _ = DisposeAsync().AsTask();
 
             if (_batchTimer != null)
             {
                 _batchTimer.Stop();
                 _batchTimer.Dispose();
                 _batchTimer = null;
-            }
-
-            if (PersistenceProvider is IDisposable disposableProvider)
-            {
-                disposableProvider.Dispose();
             }
         }
 
@@ -605,6 +600,49 @@ public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposa
         await FlushAsync().ConfigureAwait(false);
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            // Flush any pending changes
+            if (_pendingCount > 0)
+            {
+                await FlushAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Exception during FlushAsync in DisposeAsync.");
+        }
+        finally
+        {
+            if (_batchTimer != null)
+            {
+                _batchTimer.Stop();
+                _batchTimer.Dispose();
+                _batchTimer = null;
+            }
+
+            _initGate?.Dispose();
+
+            if (PersistenceProvider is IAsyncDisposable asyncDisposableProvider)
+            {
+                await asyncDisposableProvider.DisposeAsync().ConfigureAwait(false);
+            }
+            else if (PersistenceProvider is IDisposable disposableProvider)
+            {
+                disposableProvider.Dispose();
+            }
+
+            _disposed = true;
+        }
+    }
+    
     private void TrackMutation()
     {
         IPersistenceOptions? opts = GetPersistenceOptions();
@@ -615,12 +653,16 @@ public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposa
 
         lock (_batchLock)
         {
+            var wasEmpty = _pendingCount == 0;
             _pendingCount++;
+            
             // if we've hit the batch size, flush now
             if (_pendingCount >= opts.BatchSize)
             {
                 _batchTimer?.Stop();
+                var pendingCount = _pendingCount;
                 _pendingCount = 0;
+                
                 // Fire-and-forget, but log any exceptions
                 _ = Task.Run(async () =>
                 {
@@ -630,15 +672,18 @@ public class PersistentDictionary<TValue> : Dictionary<string, TValue>, IDisposa
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogError(ex, "Exception during background FlushAsync in TrackMutation.");
+                        _logger?.LogError(ex, "Exception during background FlushAsync in TrackMutation. PendingCount was: {PendingCount}", pendingCount);
                     }
                 });
             }
             else
             {
-                // re-arm timer if configured
-                _batchTimer?.Stop();
-                _batchTimer?.Start();
+                // Only start timer if this is the first pending change
+                if (wasEmpty)
+                {
+                    _batchTimer?.Stop();
+                    _batchTimer?.Start();
+                }
             }
         }
     }
