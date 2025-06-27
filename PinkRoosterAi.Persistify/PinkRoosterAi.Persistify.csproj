@@ -45,7 +45,7 @@
         <PackagePath></PackagePath>
         <Link>logo_transparent_small.png</Link>
       </None>
-      <None Include="README.md" Pack="true" PackagePath="" />
+      <None Include="..\README.md" Pack="true" PackagePath="" Link="README.md" />
     </ItemGroup>
 
 </Project>
