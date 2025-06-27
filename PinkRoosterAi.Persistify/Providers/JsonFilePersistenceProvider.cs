@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using PinkRoosterAi.Persistify.Abstractions;
 using PinkRoosterAi.Persistify.Options;
 
@@ -7,21 +8,22 @@ namespace PinkRoosterAi.Persistify.Providers;
 /// <summary>
 ///     Provides JSON file based persistence for PersistentDictionary.
 /// </summary>
-/// <typeparam name="TKey">The type of dictionary keys.</typeparam>
 /// <typeparam name="TValue">The type of dictionary values.</typeparam>
-public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TKey, TValue>, IPersistenceMetadataProvider<TKey>, IDisposable, IAsyncDisposable
-    where TKey : notnull
+public class JsonFilePersistenceProvider<TValue> : IPersistenceProvider<TValue>,
+    IPersistenceMetadataProvider, IDisposable, IAsyncDisposable
 {
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
+    private readonly JsonSerializerOptions _serializerOptions;
+
     /// <summary>
-    ///     Initializes a new instance of the <see cref="JsonFilePersistenceProvider{TKey, TValue}" /> class.
+    ///     Initializes a new instance of the <see cref="JsonFilePersistenceProvider{TValue}" /> class.
     /// </summary>
     /// <param name="options">The JSON file persistence options.</param>
     public JsonFilePersistenceProvider(JsonFilePersistenceOptions options)
     {
         Options = options ?? throw new ArgumentNullException(nameof(options));
-        if (string.IsNullOrWhiteSpace(Options.FilePath))
+        if (string.IsNullOrWhiteSpace(GetFileName(options.FilePath)))
         {
             throw new ArgumentException("FilePath must be specified in JsonFilePersistenceOptions.", nameof(options));
         }
@@ -29,14 +31,9 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
         _serializerOptions = Options.SerializerOptions ?? new JsonSerializerOptions();
     }
 
-    private readonly JsonSerializerOptions _serializerOptions;
-
     public JsonFilePersistenceOptions Options { get; }
-
-    public void Dispose()
-    {
-        _semaphore.Dispose();
-    }
+    
+    IPersistenceOptions IPersistenceProvider<TValue>.Options => Options;
 
     public async ValueTask DisposeAsync()
     {
@@ -44,23 +41,56 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
         await Task.CompletedTask;
     }
 
+    public void Dispose()
+    {
+        _semaphore.Dispose();
+    }
+
+    public string GetFileName(string dictionaryName)
+    {
+        return Path.Combine(Options.FilePath, dictionaryName + ".json");
+    }
+
+    public Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(string dictionaryName,CancellationToken ct = default)
+    {
+        // Approximate: use file's last write time for all keys if file exists, else DateTime.UtcNow
+        var dict = new Dictionary<string, DateTime>();
+        DateTime updatedAt;
+        if (File.Exists(GetFileName(dictionaryName)))
+        {
+            updatedAt = File.GetLastWriteTimeUtc(GetFileName(dictionaryName));
+            // Load keys from file
+            using (FileStream stream = new FileStream(GetFileName(dictionaryName), FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var data = JsonSerializer.Deserialize<Dictionary<string, TValue>>(stream, _serializerOptions);
+                if (data != null)
+                {
+                    foreach (string key in data.Keys) dict[key] = updatedAt;
+                }
+            }
+        }
+
+        return Task.FromResult(dict);
+    }
+
     /// <inheritdoc />
-    public async Task<Dictionary<TKey, TValue>> LoadAsync(CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, TValue>> LoadAsync(string dictionaryName,CancellationToken cancellationToken = default)
     {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(Options.FilePath))
+            if (!File.Exists(GetFileName(dictionaryName)))
             {
-                return new Dictionary<TKey, TValue>();
+                return new Dictionary<string, TValue>();
             }
 
-            await using FileStream stream = new FileStream(Options.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
-            await using var buffered = new BufferedStream(stream, 64 * 1024); // 64KB buffer for large files
+            await using FileStream stream = new FileStream(GetFileName(dictionaryName), FileMode.Open, FileAccess.Read,
+                FileShare.Read, 4096, true);
+            await using BufferedStream buffered = new BufferedStream(stream, 64 * 1024); // 64KB buffer for large files
             var data = await JsonSerializer
-                .DeserializeAsync<Dictionary<TKey, TValue>>(buffered, _serializerOptions, cancellationToken)
+                .DeserializeAsync<Dictionary<string, TValue>>(buffered, _serializerOptions, cancellationToken)
                 .ConfigureAwait(false);
-            return data ?? new Dictionary<TKey, TValue>();
+            return data ?? new Dictionary<string, TValue>();
         }
         finally
         {
@@ -69,7 +99,7 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
     }
 
     /// <inheritdoc />
-    public async Task SaveAsync(Dictionary<TKey, TValue> data, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(string dictionaryName,Dictionary<string, TValue> data, CancellationToken cancellationToken = default)
     {
         if (data == null)
         {
@@ -77,12 +107,13 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
         }
 
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        string tempFilePath = Options.FilePath + ".tmp";
+        string tempFilePath = GetFileName(dictionaryName) + ".tmp";
         try
         {
             await using (FileStream tempStream =
-                         new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
-            await using (var buffered = new BufferedStream(tempStream, 64 * 1024)) // 64KB buffer for large files
+                         new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true))
+            await using (BufferedStream
+                         buffered = new BufferedStream(tempStream, 64 * 1024)) // 64KB buffer for large files
             {
                 await JsonSerializer.SerializeAsync(buffered, data, _serializerOptions, cancellationToken)
                     .ConfigureAwait(false);
@@ -92,20 +123,20 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
             // Replace original file atomically, using a cross-platform safe strategy
             try
             {
-                if (File.Exists(Options.FilePath))
+                if (File.Exists(GetFileName(dictionaryName)))
                 {
                     try
                     {
                         // Try File.Replace if available (Windows)
-                        File.Replace(tempFilePath, Options.FilePath, null);
+                        File.Replace(tempFilePath, GetFileName(dictionaryName), null);
                     }
                     catch (PlatformNotSupportedException)
                     {
                         // Fallback for non-Windows: use File.Copy + File.Delete for cross-volume safety
-                        string backupPath = Options.FilePath + ".bak";
+                        string backupPath = GetFileName(dictionaryName) + ".bak";
                         try
                         {
-                            File.Copy(tempFilePath, Options.FilePath, overwrite: true);
+                            File.Copy(tempFilePath, GetFileName(dictionaryName), true);
                             File.Delete(tempFilePath);
                         }
                         catch
@@ -113,9 +144,23 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
                             // If copy fails, try to restore from backup if possible
                             if (File.Exists(backupPath))
                             {
-                                try { File.Copy(backupPath, Options.FilePath, overwrite: true); } catch { }
-                                try { File.Delete(backupPath); } catch { }
+                                try
+                                {
+                                    File.Copy(backupPath, GetFileName(dictionaryName), true);
+                                }
+                                catch
+                                {
+                                }
+
+                                try
+                                {
+                                    File.Delete(backupPath);
+                                }
+                                catch
+                                {
+                                }
                             }
+
                             throw;
                         }
                     }
@@ -123,7 +168,7 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
                 else
                 {
                     // If the target doesn't exist, just move (rename) the temp file
-                    File.Move(tempFilePath, Options.FilePath);
+                    File.Move(tempFilePath, GetFileName(dictionaryName));
                 }
             }
             catch
@@ -162,32 +207,20 @@ public class JsonFilePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
     }
 
     /// <inheritdoc />
-    public Task<bool> ExistsAsync(CancellationToken cancellationToken = default)
+    public Task<bool> ExistsAsync(string dictionaryName,CancellationToken cancellationToken = default)
     {
-        bool exists = File.Exists(Options.FilePath);
+        bool exists = File.Exists(GetFileName(dictionaryName));
         return Task.FromResult(exists);
     }
-    public Task<Dictionary<TKey, DateTime>> LoadLastUpdatedAsync(CancellationToken ct = default)
-    {
-        // Approximate: use file's last write time for all keys if file exists, else DateTime.UtcNow
-        var dict = new Dictionary<TKey, DateTime>();
-        DateTime updatedAt;
-        if (File.Exists(Options.FilePath))
-        {
-            updatedAt = File.GetLastWriteTimeUtc(Options.FilePath);
-            // Load keys from file
-            using (var stream = new FileStream(Options.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            {
-                var data = JsonSerializer.Deserialize<Dictionary<TKey, TValue>>(stream, _serializerOptions);
-                if (data != null)
-                {
-                    foreach (var key in data.Keys)
-                    {
-                        dict[key] = updatedAt;
-                    }
-                }
-            }
-        }
-        return Task.FromResult(dict);
-    }
+
+    public PersistentDictionary<TValue> CreateDictionary(string dictionaryName,ILogger<PersistentDictionary<TValue>>? logger = null)
+        => logger is null ? new PersistentDictionary<TValue>(this, dictionaryName)
+                          : new PersistentDictionary<TValue>(this, dictionaryName, logger);
+
+    public CachingPersistentDictionary<TValue> CreateCachingDictionary(string dictionaryName,TimeSpan ttl,
+                          ILogger<PersistentDictionary<TValue>>? logger = null)
+        => logger is null ? new CachingPersistentDictionary<TValue>(this, dictionaryName,ttl)
+                          : new CachingPersistentDictionary<TValue>(this, dictionaryName,ttl, logger);
+
+
 }

@@ -5,7 +5,7 @@ namespace PinkRoosterAi.Persistify.Options;
 public class DatabasePersistenceOptions : IPersistenceOptions
 {
     public required string ConnectionString { get; init; }
-    public required string? TableName { get; init; }
+
     public string KeyColumnName { get; init; } = "Key";
     public string ValueColumnName { get; init; } = "Value";
     public int MaxRetryAttempts { get; init; } = 3;

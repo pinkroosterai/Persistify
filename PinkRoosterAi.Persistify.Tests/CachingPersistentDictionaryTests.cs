@@ -13,13 +13,13 @@ namespace PinkRoosterAi.Persistify.Tests
 {
     public class CachingPersistentDictionaryTests
     {
-        private readonly Mock<IPersistenceProvider<string, string>> _mockProvider;
-        private readonly Mock<ILogger<PersistentDictionary<string, string>>> _mockLogger;
+        private readonly Mock<IPersistenceProvider<string>> _mockProvider;
+        private readonly Mock<ILogger<PersistentDictionary<string>>> _mockLogger;
 
         public CachingPersistentDictionaryTests()
         {
-            _mockProvider = new Mock<IPersistenceProvider<string, string>>(MockBehavior.Strict);
-            _mockLogger = new Mock<ILogger<PersistentDictionary<string, string>>>();
+            _mockProvider = new Mock<IPersistenceProvider<string>>(MockBehavior.Strict);
+            _mockLogger = new Mock<ILogger<PersistentDictionary<string>>>();
         }
 
         [Fact]
@@ -30,11 +30,11 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
             _mockProvider.Setup(p => p.LoadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(data);
 
-            var dict = new CachingPersistentDictionary<string, string>(_mockProvider.Object, TimeSpan.FromMinutes(5));
+            var dict = new CachingPersistentDictionary<string>(_mockProvider.Object, TimeSpan.FromMinutes(5));
 
             await dict.InitializeAsync();
 
-            var lastReadField = typeof(CachingPersistentDictionary<string, string>)
+            var lastReadField = typeof(CachingPersistentDictionary<string>)
                 .GetField("_lastReadAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
 
             var lastRead = (Dictionary<string, DateTime>)lastReadField.GetValue(dict)!;
@@ -48,12 +48,12 @@ namespace PinkRoosterAi.Persistify.Tests
         {
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
-            var dict = new CachingPersistentDictionary<string, string>(_mockProvider.Object, TimeSpan.FromMinutes(1));
+            var dict = new CachingPersistentDictionary<string>(_mockProvider.Object, TimeSpan.FromMinutes(1));
 
             await dict.InitializeAsync();
             await dict.AddAndSaveAsync("k1", "v1");
 
-            var lastReadField = typeof(CachingPersistentDictionary<string, string>)
+            var lastReadField = typeof(CachingPersistentDictionary<string>)
                 .GetField("_lastReadAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
 
             // simulate
@@ -70,16 +70,16 @@ namespace PinkRoosterAi.Persistify.Tests
         {
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
-            var dict = new CachingPersistentDictionary<string, string>(_mockProvider.Object, TimeSpan.FromMinutes(1));
+            var dict = new CachingPersistentDictionary<string>(_mockProvider.Object, TimeSpan.FromMinutes(1));
             await dict.InitializeAsync();
             await dict.AddAndSaveAsync("k1", "v1");
 
             dict["k1"] = "v2"; // triggers OnMutation
 
-            var lastReadField = typeof(CachingPersistentDictionary<string, string>)
+            var lastReadField = typeof(CachingPersistentDictionary<string>)
                 .GetField("_lastReadAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
 
-            var lastUpdatedField = typeof(CachingPersistentDictionary<string, string>)
+            var lastUpdatedField = typeof(CachingPersistentDictionary<string>)
                 .GetField("_lastUpdatedAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
 
             var lastRead = (Dictionary<string, DateTime>)lastReadField.GetValue(dict)!;
@@ -131,11 +131,11 @@ namespace PinkRoosterAi.Persistify.Tests
         /// <summary>
         /// Subclass to monitor RemoveAndSaveAsync calls since the base fires them fire-and-forget
         /// </summary>
-        private class TestableCachingPersistentDictionary : CachingPersistentDictionary<string, string>
+        private class TestableCachingPersistentDictionary : CachingPersistentDictionary<string>
         {
             public List<string> RemovedKeys { get; } = new();
 
-            public TestableCachingPersistentDictionary(IPersistenceProvider<string, string> provider, TimeSpan ttl)
+            public TestableCachingPersistentDictionary(IPersistenceProvider<string> provider, TimeSpan ttl)
                 : base(provider, ttl)
             {
             }

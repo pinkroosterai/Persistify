@@ -1,9 +1,9 @@
 namespace PinkRoosterAi.Persistify.Abstractions;
 
-public interface IPersistenceMetadataProvider<TKey>
+public interface IPersistenceMetadataProvider
 {
     /// <summary>
-    /// Returns a map of all keys → their persisted UpdatedAt.
+    ///     Returns a map of all keys → their persisted UpdatedAt.
     /// </summary>
-    Task<Dictionary<TKey, DateTime>> LoadLastUpdatedAsync(CancellationToken ct = default);
+    Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(string dictionaryName,CancellationToken ct = default);
 }

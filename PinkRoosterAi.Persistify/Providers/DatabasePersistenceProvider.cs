@@ -1,29 +1,29 @@
 using System.Data;
 using System.Text.Json;
-using ServiceStack.OrmLite;
 using Microsoft.Extensions.Logging;
 using PinkRoosterAi.Persistify.Abstractions;
 using PinkRoosterAi.Persistify.Options;
+using ServiceStack.OrmLite;
 
 namespace PinkRoosterAi.Persistify.Providers;
 
 /// <summary>
 ///     Provides database persistence for PersistentDictionary using ServiceStack.OrmLite.
 /// </summary>
-/// <typeparam name="TKey">The type of dictionary keys.</typeparam>
 /// <typeparam name="TValue">The type of dictionary values.</typeparam>
-public class DatabasePersistenceProvider<TKey, TValue> : IPersistenceProvider<TKey, TValue>, IPersistenceMetadataProvider<TKey>
-    where TKey : notnull
+public class DatabasePersistenceProvider<TValue> : IPersistenceProvider<TValue>,
+    IPersistenceMetadataProvider
 {
     private readonly OrmLiteConnectionFactory _dbFactory;
-    private readonly ILogger<DatabasePersistenceProvider<TKey, TValue>>? _logger;
+    private readonly ILogger<DatabasePersistenceProvider<TValue>>? _logger;
 
     /// <summary>
-    ///     Initializes a new instance of the <see cref="DatabasePersistenceProvider{TKey, TValue}" /> class.
+    ///     Initializes a new instance of the <see cref="DatabasePersistenceProvider{TValue}" /> class.
     /// </summary>
     /// <param name="options">The database persistence options.</param>
     /// <param name="logger">Optional logger for error reporting.</param>
-    public DatabasePersistenceProvider(DatabasePersistenceOptions options, ILogger<DatabasePersistenceProvider<TKey, TValue>>? logger = null)
+    public DatabasePersistenceProvider(DatabasePersistenceOptions options,
+        ILogger<DatabasePersistenceProvider<TValue>>? logger = null)
     {
         Options = options ?? throw new ArgumentNullException(nameof(options));
         if (string.IsNullOrWhiteSpace(Options.ConnectionString))
@@ -39,33 +39,57 @@ public class DatabasePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
     }
 
     public DatabasePersistenceOptions Options { get; }
+    
+    IPersistenceOptions IPersistenceProvider<TValue>.Options => Options;
+
+    public async Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(string dictionaryName,CancellationToken ct = default)
+    {
+        await EnsureTableExistsAsync( dictionaryName,ct).ConfigureAwait(false);
+
+        using IDbConnection? db = await _dbFactory.OpenAsync(ct).ConfigureAwait(false);
+        var dict = new Dictionary<string, DateTime>();
+
+        string sql = $"SELECT {Options.KeyColumnName}, UpdatedAt FROM {dictionaryName}";
+        IDbCommand cmd = db.CreateCommand();
+        cmd.CommandText = sql;
+
+        using IDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            string keyString = reader.GetString(0);
+            DateTime updatedAt = reader.GetDateTime(1);
+
+            dict[keyString] = updatedAt;
+        }
+
+        return dict;
+    }
 
     /// <inheritdoc />
-    public async Task<Dictionary<TKey, TValue>> LoadAsync(CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, TValue>> LoadAsync(string dictionaryName,CancellationToken cancellationToken = default)
     {
-        await EnsureTableExistsAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureTableExistsAsync( dictionaryName,cancellationToken).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var result = new Dictionary<TKey, TValue>();
+        var result = new Dictionary<string, TValue>();
 
         // Use the actual table name, not TableRow type
-        string sql = $"SELECT {Options.KeyColumnName}, {Options.ValueColumnName} FROM {Options.TableName}";
+        string sql = $"SELECT {Options.KeyColumnName}, {Options.ValueColumnName} FROM {dictionaryName}";
         var rows = await db.SelectAsync<(string Key, string Value)>(sql, cancellationToken).ConfigureAwait(false);
 
-        foreach (var row in rows)
+        foreach ((string Key, string Value) row in rows)
         {
-            bool keyOk = TryConvertKey(row.Key, out TKey key, out Exception? keyEx);
             bool valueOk = TryConvertValue(row.Value, out TValue value, out Exception? valueEx);
 
-            if (keyOk && valueOk)
+            if (valueOk)
             {
-                result[key] = value;
+                result[row.Key] = value;
             }
             else
             {
-                _logger?.LogWarning("Failed to convert row in {Table}: Key='{Key}' Value='{Value}'. KeyError: {KeyError} ValueError: {ValueError}",
-                    Options.TableName, row.Key, row.Value,
-                    keyEx?.Message, valueEx?.Message);
+                _logger?.LogWarning(
+                    "Failed to convert row in {Table}: Key='{Key}' Value='{Value}'. ValueError: {ValueError}",
+                    dictionaryName, row.Key, row.Value, valueEx?.Message);
             }
         }
 
@@ -73,35 +97,37 @@ public class DatabasePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
     }
 
     /// <inheritdoc />
-    public async Task SaveAsync(Dictionary<TKey, TValue> data, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(string dictionaryName,Dictionary<string, TValue> data, CancellationToken cancellationToken = default)
     {
         if (data == null)
         {
             throw new ArgumentNullException(nameof(data));
         }
 
-        await EnsureTableExistsAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureTableExistsAsync( dictionaryName,cancellationToken).ConfigureAwait(false);
 
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         // Use async transaction
-        using var transaction =  db.BeginTransaction();
+        using IDbTransaction transaction = db.BeginTransaction();
 
         try
         {
             // Collect all keys in the input data
-            var inputKeys = new HashSet<string>(data.Keys.Select(k => k?.ToString() ?? throw new InvalidOperationException("Key.ToString() returned null")));
+            var inputKeys = new HashSet<string>(data.Keys);
 
-            string Quote(string ident) => "\"" + ident.Replace("\"", "\"\"") + "\"";
+            string Quote(string ident)
+            {
+                return "\"" + ident.Replace("\"", "\"\"") + "\"";
+            }
 
             // Use UPSERT (ON CONFLICT) for each row to avoid round-trips
             foreach (var kvp in data)
             {
-                string keyString = kvp.Key.ToString() ??
-                                   throw new InvalidOperationException("Key.ToString() returned null");
+                string keyString = kvp.Key;
                 string valueString = SerializeValue(kvp.Value);
 
                 string upsertSql = $@"
-INSERT INTO {Quote(Options.TableName)} ({Quote(Options.KeyColumnName)}, {Quote(Options.ValueColumnName)}, CreatedAt, UpdatedAt)
+INSERT INTO {Quote(dictionaryName)} ({Quote(Options.KeyColumnName)}, {Quote(Options.ValueColumnName)}, CreatedAt, UpdatedAt)
 VALUES (@key, @value, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT({Quote(Options.KeyColumnName)}) DO UPDATE SET
     {Quote(Options.ValueColumnName)} = excluded.{Quote(Options.ValueColumnName)},
@@ -113,31 +139,32 @@ ON CONFLICT({Quote(Options.KeyColumnName)}) DO UPDATE SET
 
             // Delete keys not in dictionary
             var existingKeys = await db
-                .ColumnAsync<string>($"SELECT {Quote(Options.KeyColumnName)} FROM {Quote(Options.TableName)}", cancellationToken, token: cancellationToken)
+                .ColumnAsync<string>($"SELECT {Quote(Options.KeyColumnName)} FROM {Quote(dictionaryName)}",
+                    cancellationToken, cancellationToken)
                 .ConfigureAwait(false);
 
             foreach (string keyToDelete in existingKeys)
-            {
                 if (!inputKeys.Contains(keyToDelete))
                 {
-                    string deleteSql = $@"DELETE FROM {Quote(Options.TableName)} WHERE {Quote(Options.KeyColumnName)} = @key";
-                    await db.ExecuteSqlAsync(deleteSql, new { key = keyToDelete }, cancellationToken).ConfigureAwait(false);
+                    string deleteSql =
+                        $@"DELETE FROM {Quote(dictionaryName)} WHERE {Quote(Options.KeyColumnName)} = @key";
+                    await db.ExecuteSqlAsync(deleteSql, new { key = keyToDelete }, cancellationToken)
+                        .ConfigureAwait(false);
                 }
-            }
 
-             transaction.Commit();
+            transaction.Commit();
         }
         catch
         {
-             transaction.Rollback();
+            transaction.Rollback();
             throw;
         }
     }
 
     /// <inheritdoc />
-    public async Task<bool> ExistsAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> ExistsAsync(string dictionaryName,CancellationToken cancellationToken = default)
     {
-        await EnsureTableExistsAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureTableExistsAsync( dictionaryName,cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -147,48 +174,26 @@ ON CONFLICT({Quote(Options.KeyColumnName)}) DO UPDATE SET
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    private async Task EnsureTableExistsAsync(CancellationToken cancellationToken = default)
+    private async Task EnsureTableExistsAsync(string dictionaryName,CancellationToken cancellationToken = default)
     {
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+
         // Use CREATE TABLE IF NOT EXISTS for atomic table creation
-        string Quote(string ident) => "\"" + ident.Replace("\"", "\"\"") + "\"";
+        string Quote(string ident)
+        {
+            return "\"" + ident.Replace("\"", "\"\"") + "\"";
+        }
+
         string createTableSql = $@"
-CREATE TABLE IF NOT EXISTS {Quote(Options.TableName)} (
+CREATE TABLE IF NOT EXISTS {Quote(dictionaryName)} (
     {Quote(Options.KeyColumnName)} TEXT PRIMARY KEY,
     {Quote(Options.ValueColumnName)} TEXT NOT NULL,
     CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );";
-        await db.ExecuteNonQueryAsync(createTableSql, token: cancellationToken).ConfigureAwait(false);
+        await db.ExecuteNonQueryAsync(createTableSql, cancellationToken).ConfigureAwait(false);
     }
 
-    private bool TryConvertKey(string keyString, out TKey key, out Exception? error)
-    {
-        key = default!;
-        error = null;
-        try
-        {
-            if (typeof(TKey) == typeof(string))
-            {
-                key = (TKey)(object)keyString!;
-                return true;
-            }
-
-            if (typeof(TKey).IsEnum)
-            {
-                key = (TKey)Enum.Parse(typeof(TKey), keyString!);
-                return true;
-            }
-
-            key = (TKey)Convert.ChangeType(keyString, typeof(TKey));
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = ex;
-            return false;
-        }
-    }
 
     private bool TryConvertValue(string valueString, out TValue value, out Exception? error)
     {
@@ -238,6 +243,15 @@ CREATE TABLE IF NOT EXISTS {Quote(Options.TableName)} (
         return JsonSerializer.Serialize(value);
     }
 
+    public PersistentDictionary<TValue> CreateDictionary(string dictionaryName,ILogger<PersistentDictionary<TValue>>? logger = null)
+        => logger is null ? new PersistentDictionary<TValue>(this, dictionaryName)
+                          : new PersistentDictionary<TValue>(this,dictionaryName, logger);
+
+    public CachingPersistentDictionary<TValue> CreateCachingDictionary(string dictionaryName,TimeSpan ttl, 
+                          ILogger<PersistentDictionary<TValue>>? logger = null)
+        => logger is null ? new CachingPersistentDictionary<TValue>(this,dictionaryName, ttl)
+                          : new CachingPersistentDictionary<TValue>(this,dictionaryName, ttl, logger);
+
     private class TableRow
     {
         public string Key { get; set; } = string.Empty;
@@ -246,29 +260,8 @@ CREATE TABLE IF NOT EXISTS {Quote(Options.TableName)} (
         public DateTime UpdatedAt { get; set; }
     }
 
-    public async Task<Dictionary<TKey, DateTime>> LoadLastUpdatedAsync(CancellationToken ct = default)
+    public Task<Dictionary<string, DateTime>> LoadLastUpdatedAsync(CancellationToken ct = default)
     {
-        await EnsureTableExistsAsync(ct).ConfigureAwait(false);
-
-        using IDbConnection? db = await _dbFactory.OpenAsync(ct).ConfigureAwait(false);
-        var dict = new Dictionary<TKey, DateTime>();
-
-        string sql = $"SELECT {Options.KeyColumnName}, UpdatedAt FROM {Options.TableName}";
-        var cmd = db.CreateCommand();
-        cmd.CommandText = sql;
-
-        using IDataReader reader =  cmd.ExecuteReader();
-        while ( reader.Read())
-        {
-            string keyString = reader.GetString(0);
-            DateTime updatedAt = reader.GetDateTime(1);
-
-            if (TryConvertKey(keyString, out TKey key, out _))
-            {
-                dict[key] = updatedAt;
-            }
-        }
-
-        return dict;
+        throw new NotImplementedException();
     }
 }

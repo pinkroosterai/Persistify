@@ -7,12 +7,12 @@ public interface IPersistenceOptions
     bool ThrowOnPersistenceFailure { get; }
 
     /// <summary>
-    /// Number of buffered mutations before automatically flushing.
+    ///     Number of buffered mutations before automatically flushing.
     /// </summary>
     int BatchSize { get; }
 
     /// <summary>
-    /// Maximum time to wait before flushing even if BatchSize not reached.
+    ///     Maximum time to wait before flushing even if BatchSize not reached.
     /// </summary>
     TimeSpan BatchInterval { get; }
 }

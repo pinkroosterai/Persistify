@@ -1,28 +1,26 @@
-﻿using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+﻿using System.Reflection;
+using Microsoft.Extensions.Logging;
 using PinkRoosterAi.Persistify.Abstractions;
 
 namespace PinkRoosterAi.Persistify;
 
-public class CachingPersistentDictionary<TKey, TValue> : PersistentDictionary<TKey, TValue>, IDisposable
+public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>, IDisposable
 {
+    private readonly object _cacheLock = new object();
+    private readonly Dictionary<string, DateTime> _lastReadAt = new Dictionary<string, DateTime>();
+    private readonly Dictionary<string, DateTime> _lastUpdatedAt = new Dictionary<string, DateTime>();
     private readonly TimeSpan _ttl;
-    private readonly object _cacheLock = new();
-    private readonly Dictionary<TKey, DateTime> _lastReadAt = new();
-    private readonly Dictionary<TKey, DateTime> _lastUpdatedAt = new();
 
-    public CachingPersistentDictionary(IPersistenceProvider<TKey, TValue> persistenceProvider, TimeSpan cachedTimeBeforeEviction)
-        : base(persistenceProvider)
+    public CachingPersistentDictionary(IPersistenceProvider<TValue> persistenceProvider, string dictionaryName,
+        TimeSpan cachedTimeBeforeEviction)
+        : base(persistenceProvider,dictionaryName)
     {
         _ttl = cachedTimeBeforeEviction;
     }
 
-    public CachingPersistentDictionary(IPersistenceProvider<TKey, TValue> persistenceProvider, TimeSpan cachedTimeBeforeEviction, ILogger<PersistentDictionary<TKey, TValue>>? logger)
-        : base(persistenceProvider, logger)
+    public CachingPersistentDictionary(IPersistenceProvider<TValue> persistenceProvider,string dictionaryName,
+        TimeSpan cachedTimeBeforeEviction,  ILogger<PersistentDictionary<TValue>>? logger)
+        : base(persistenceProvider,dictionaryName, logger)
     {
         _ttl = cachedTimeBeforeEviction;
     }
@@ -30,37 +28,36 @@ public class CachingPersistentDictionary<TKey, TValue> : PersistentDictionary<TK
     public new async Task InitializeAsync(CancellationToken ct = default)
     {
         await base.InitializeAsync(ct);
-        var now = DateTime.UtcNow;
+        DateTime now = DateTime.UtcNow;
         lock (_cacheLock)
         {
-            foreach (var key in Keys)
+            foreach (string key in Keys)
                 _lastReadAt[key] = now;
         }
 
-        if (base.PersistenceProvider is IPersistenceMetadataProvider<TKey> metaProvider)
+        if (PersistenceProvider is IPersistenceMetadataProvider metaProvider)
         {
-            var updatedDict = await metaProvider.LoadLastUpdatedAsync(ct);
+            var updatedDict = await metaProvider.LoadLastUpdatedAsync(DictionaryName,ct).ConfigureAwait(false);
             lock (_cacheLock)
             {
-                foreach (var kvp in updatedDict)
-                {
-                    _lastUpdatedAt[kvp.Key] = kvp.Value;
-                }
+                foreach (var kvp in updatedDict) _lastUpdatedAt[kvp.Key] = kvp.Value;
             }
         }
+
         EvictExpiredEntries();
     }
 
-    protected override void OnAccess(TKey key)
+    protected override void OnAccess(string key)
     {
         lock (_cacheLock)
         {
             _lastReadAt[key] = DateTime.UtcNow;
         }
+
         EvictExpiredEntries();
     }
 
-    protected override void OnMutation(TKey key)
+    protected override void OnMutation(string key)
     {
         EvictExpiredEntries();
         lock (_cacheLock)
@@ -72,11 +69,11 @@ public class CachingPersistentDictionary<TKey, TValue> : PersistentDictionary<TK
 
     private void EvictExpiredEntries()
     {
-        var now = DateTime.UtcNow;
-        var toRemove = new List<TKey>();
+        DateTime now = DateTime.UtcNow;
+        var toRemove = new List<string>();
         lock (_cacheLock)
         {
-            foreach (var key in Keys)
+            foreach (string key in Keys)
             {
                 DateTime readAt = _lastReadAt.GetValueOrDefault(key, now);
                 DateTime updatedAt = _lastUpdatedAt.GetValueOrDefault(key, now);
@@ -86,32 +83,35 @@ public class CachingPersistentDictionary<TKey, TValue> : PersistentDictionary<TK
                 }
             }
         }
+
         if (!toRemove.Any())
+        {
             return;
+        }
 
         // _syncRoot is protected in base
-        var syncRootField = typeof(PersistentDictionary<TKey, TValue>).GetField("_syncRoot", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        FieldInfo? syncRootField =
+            typeof(PersistentDictionary<TValue>).GetField("_syncRoot",
+                BindingFlags.NonPublic | BindingFlags.Instance);
         object syncRoot = syncRootField?.GetValue(this) ?? this;
 
         lock (syncRoot)
         {
             lock (_cacheLock)
             {
-                foreach (var key in toRemove)
+                foreach (string key in toRemove)
                 {
-                    base.Remove(key);
+                    Remove(key);
                     _lastReadAt.Remove(key);
                     _lastUpdatedAt.Remove(key);
                 }
             }
         }
-        foreach (var key in toRemove)
-        {
-            _ = RemoveAndSaveAsync(key); // fire-and-forget
-        }
+
+        foreach (string key in toRemove) _ = RemoveAndSaveAsync(key); // fire-and-forget
     }
 
-    public new virtual async Task<bool> RemoveAndSaveAsync(TKey key, CancellationToken cancellationToken = default)
+    public new virtual async Task<bool> RemoveAndSaveAsync(string key, CancellationToken cancellationToken = default)
     {
         return await base.RemoveAndSaveAsync(key, cancellationToken);
     }

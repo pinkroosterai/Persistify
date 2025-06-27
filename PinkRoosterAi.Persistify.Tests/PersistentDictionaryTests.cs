@@ -12,13 +12,13 @@ namespace PinkRoosterAi.Persistify.Tests
 {
     public class PersistentDictionaryTests
     {
-        private readonly Mock<IPersistenceProvider<string, string>> _mockProvider;
-        private readonly Mock<ILogger<PersistentDictionary<string, string>>> _mockLogger;
+        private readonly Mock<IPersistenceProvider<string>> _mockProvider;
+        private readonly Mock<ILogger<PersistentDictionary<string>>> _mockLogger;
 
         public PersistentDictionaryTests()
         {
-            _mockProvider = new Mock<IPersistenceProvider<string, string>>(MockBehavior.Strict);
-            _mockLogger = new Mock<ILogger<PersistentDictionary<string, string>>>();
+            _mockProvider = new Mock<IPersistenceProvider<string>>(MockBehavior.Strict);
+            _mockLogger = new Mock<ILogger<PersistentDictionary<string>>>();
         }
 
         [Fact]
@@ -31,7 +31,7 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.LoadAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(existingData);
 
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object);
 
             // act
             await dict.InitializeAsync();
@@ -48,7 +48,7 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
 
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object);
 
             await dict.InitializeAsync();
 
@@ -62,7 +62,7 @@ namespace PinkRoosterAi.Persistify.Tests
             // arrange
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object);
             await dict.InitializeAsync();
 
             // act
@@ -79,7 +79,7 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
 
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object);
             await dict.InitializeAsync();
             await dict.AddAndSaveAsync("key", "value");
 
@@ -97,7 +97,7 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
 
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object);
             await dict.InitializeAsync();
             await dict.AddAndSaveAsync("key", "value");
 
@@ -113,7 +113,7 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
 
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object);
             await dict.InitializeAsync();
 
             var removed = await dict.TryRemoveAndSaveAsync("missing");
@@ -131,7 +131,7 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.SaveAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
 
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object, _mockLogger.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, _mockLogger.Object);
             await dict.InitializeAsync();
             await dict.AddAndSaveAsync("k1", "v1");
 
@@ -145,12 +145,12 @@ namespace PinkRoosterAi.Persistify.Tests
         [Fact]
         public async Task Dispose_ShouldFlushAndDisposeProvider()
         {
-            var disposableProvider = new Mock<IPersistenceProvider<string, string>>(MockBehavior.Strict);
+            var disposableProvider = new Mock<IPersistenceProvider<string>>(MockBehavior.Strict);
             disposableProvider.As<IDisposable>().Setup(d => d.Dispose());
             disposableProvider.Setup(p => p.ExistsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
             disposableProvider.Setup(p => p.SaveAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-            var dict = new PersistentDictionary<string, string>(disposableProvider.Object, _mockLogger.Object);
+            var dict = new PersistentDictionary<string>(disposableProvider.Object, _mockLogger.Object);
             await dict.InitializeAsync();
             await dict.AddAndSaveAsync("k1", "v1");
 
@@ -168,7 +168,7 @@ namespace PinkRoosterAi.Persistify.Tests
             _mockProvider.Setup(p => p.SaveAsync(It.IsAny<Dictionary<string, string>>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new Exception("save failure"));
 
-            var dict = new PersistentDictionary<string, string>(_mockProvider.Object, _mockLogger.Object);
+            var dict = new PersistentDictionary<string>(_mockProvider.Object, _mockLogger.Object);
             await dict.InitializeAsync();
             await dict.AddAndSaveAsync("k1", "v1");
 

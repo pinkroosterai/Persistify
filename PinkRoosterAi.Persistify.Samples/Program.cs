@@ -15,12 +15,12 @@ class Program
         // What it shows: Creating a persistent dictionary backed by a JSON file, with batched writes and automatic flushing.
         // Why it's cool: Simplifies local data storage with human-readable files, supports batching for performance, and ensures data durability with minimal code.
         Console.WriteLine("\n--- JSON-Backed Persistence ---");
-        var jsonProvider = PersistenceProviderBuilder.JsonFile<string, int>()
+        var jsonProvider = PersistenceProviderBuilder.JsonFile<int>()
             .WithFilePath("persistify_data.json")
             .WithBatch(batchSize: 3, batchInterval: TimeSpan.FromSeconds(5))
             .Build();
 
-        var jsonDict = new PersistentDictionary<string, int>(jsonProvider);
+        var jsonDict = new PersistentDictionary<int>(jsonProvider);
         await jsonDict.InitializeAsync();
 
         Console.WriteLine("Adding values to JSON dictionary...");
@@ -42,14 +42,14 @@ class Program
         // What it shows: Using a database (via SQL) as the persistence backend, with support for upsert and delete operations.
         // Why it's cool: Enables scalable, reliable storage for large datasets, with transactional integrity and flexible schema control, suitable for production environments.
         Console.WriteLine("\n--- Database-Backed Persistence ---");
-        var dbProvider = PersistenceProviderBuilder.Database<string, int>()
+        var dbProvider = PersistenceProviderBuilder.Database<int>()
             .WithConnectionString("Data Source=sample.db;")
             .WithTableName("SampleTable")
             .WithColumns("Key", "Value")
             .WithBatch(batchSize: 2, batchInterval: TimeSpan.FromSeconds(3))
             .Build();
 
-        var dbDict = new PersistentDictionary<string, int>(dbProvider);
+        var dbDict = new PersistentDictionary<int>(dbProvider);
         await dbDict.InitializeAsync();
 
         Console.WriteLine("Adding values to DB dictionary...");
@@ -71,12 +71,12 @@ class Program
         // What it shows: Handling transient failures with Polly retries and event-driven error reporting.
         // Why it's cool: Adds robustness to persistence operations, allowing graceful recovery from intermittent issues and centralized error handling.
         Console.WriteLine("\n--- Automatic Retry & Error Events ---");
-        var badJsonProvider = PersistenceProviderBuilder.JsonFile<string, int>()
+        var badJsonProvider = PersistenceProviderBuilder.JsonFile<int>()
             .WithFilePath("?:/invalid_path.json")
             .ThrowOnFailure(false)
             .Build();
 
-        var badDict = new PersistentDictionary<string, int>(badJsonProvider);
+        var badDict = new PersistentDictionary<int>(badJsonProvider);
         badDict.PersistenceError += (sender, e) =>
         {
             Console.WriteLine($"Persistence error on operation {e.Operation}, attempt {e.RetryAttempt}, fatal: {e.IsFatal}");
@@ -96,12 +96,12 @@ class Program
         // What it shows: Buffering multiple mutations and flushing them together either when batch size is reached or after a timeout.
         // Why it's cool: Significantly improves performance by reducing I/O operations, ideal for high-throughput scenarios.
         Console.WriteLine("\n--- Batched Commits ---");
-        var batchProvider = PersistenceProviderBuilder.JsonFile<string, int>()
+        var batchProvider = PersistenceProviderBuilder.JsonFile<int>()
             .WithFilePath("batch_data.json")
             .WithBatch(batchSize: 3, batchInterval: TimeSpan.FromSeconds(5))
             .Build();
 
-        var batchDict = new PersistentDictionary<string, int>(batchProvider);
+        var batchDict = new PersistentDictionary<int>(batchProvider);
         await batchDict.InitializeAsync();
 
         Console.WriteLine("Performing quick mutations...");
@@ -123,11 +123,11 @@ class Program
         // What it shows: Caching data in memory with a TTL, automatically evicting stale entries.
         // Why it's cool: Combines fast in-memory access with persistence, ensuring data freshness and reducing load on storage backends.
         Console.WriteLine("\n--- In-Memory Caching with TTL Eviction ---");
-        var cacheProvider = PersistenceProviderBuilder.JsonFile<string, int>()
+        var cacheProvider = PersistenceProviderBuilder.JsonFile<int>()
             .WithFilePath("cache_data.json")
             .Build();
 
-        var cacheDict = new CachingPersistentDictionary<string, int>(cacheProvider, TimeSpan.FromSeconds(10));
+        var cacheDict = new CachingPersistentDictionary<int>(cacheProvider, TimeSpan.FromSeconds(10));
         await cacheDict.InitializeAsync();
 
         Console.WriteLine("Adding and accessing keys...");

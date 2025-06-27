@@ -1,17 +1,14 @@
-namespace PinkRoosterAi.Persistify.Builders
+namespace PinkRoosterAi.Persistify.Builders;
+
+public static class PersistenceProviderBuilder
 {
-  public static class PersistenceProviderBuilder
-  {
-    public static JsonFilePersistenceProviderBuilder<TKey, TValue> JsonFile<TKey, TValue>()
-        where TKey : notnull
+    public static JsonFilePersistenceProviderBuilder<TValue> JsonFile<TValue>()
     {
-      return new JsonFilePersistenceProviderBuilder<TKey, TValue>();
+        return new JsonFilePersistenceProviderBuilder<TValue>();
     }
 
-    public static DatabasePersistenceProviderBuilder<TKey, TValue> Database<TKey, TValue>()
-        where TKey : notnull
+    public static DatabasePersistenceProviderBuilder<TValue> Database<TValue>()
     {
-      return new DatabasePersistenceProviderBuilder<TKey, TValue>();
+        return new DatabasePersistenceProviderBuilder<TValue>();
     }
-  }
 }
