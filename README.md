@@ -1,4 +1,4 @@
-<img src="img/logo_transparent.png" alt="PinkRooster Logo" style="width:200px;float: left; margin-right: 10px;" />
+<img align="center" src="img/logo_transparent.png" alt="PinkRooster Logo" style="width:200px;float: left; margin-right: 10px;" />
 
 # PinkRoosterAi.Persistify
 
