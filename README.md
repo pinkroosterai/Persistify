@@ -4,60 +4,49 @@
 
 # PinkRoosterAi.Persistify
 
-**Your unstoppable, thread-safe, and extensible persistent dictionary for .NET** — here to save your data from oblivion!
-🦸‍♂️✨
-
-PinkRoosterAi.Persistify makes data persistence a breeze with async, batched, and retryable key-value storage. Support
-for both JSON files and databases? You bet! 🗃️
+**A thread-safe, extensible persistent dictionary for .NET**  
+Async, batched, and retryable key-value storage with support for JSON files and databases.
 
 ---
 
-## 🚀 Features
+## Features
 
-* **`PersistentDictionary<TValue>`** 🗝️
-  A rock-solid, thread-safe dictionary that *automagically* saves your data with string keys.
+- **PersistentDictionary<TValue>**
+  - Thread-safe, string-keyed dictionary with async persistence
+  - Batch commit and flush support
+  - Retry logic with exponential backoff (Polly)
+  - Event hooks for persistence errors
+  - JSON file and database (SQLite/PostgreSQL) backends
 
-    * Async-first init & updates
-    * Batch commit & flush support
-    * Retry logic with exponential backoff (powered by Polly 🐦)
-    * Event hooks for handling persistence errors
-    * JSON file *and* database backends supported (SQLite/PostgreSQL)
+- **CachingPersistentDictionary<TValue>**
+  - Inherits all features of PersistentDictionary
+  - Tracks last access and update times
+  - Evicts stale entries from memory and persistence
+  - Configurable TTL
 
-* **`CachingPersistentDictionary<TValue>`** ⏰
-  Like `PersistentDictionary`, but with a built-in timer for stale data cleanup!
+- **Flexible Persistence Providers**
+  - JSON file: atomic file replacement
+  - Database: ServiceStack.OrmLite support
 
-    * Tracks last access & update times
-    * Evicts stale entries from memory *and* the persistence layer
-    * Configurable TTL to suit your needs
+- **Builder Pattern**
+  - Chainable configuration for providers
 
-* **🧩 Flexible Persistence Providers**
+- **Batching & Retry**
+  - Control batch size, timing, and error handling
 
-    * **JSON File**: Save to a JSON file with atomic file replacement
-    * **Database**: Save to relational tables using ServiceStack.OrmLite
-
-* **🛠️ Builder Pattern**
-  Easily set up your persistence provider with clean, chainable builder methods.
-
-* **📦 Batching & Retry**
-
-    * Control batch size, timing, and error handling
-    * Fine-tune retry behavior to suit your workload
-
-* **🕰️ Metadata Support**
-
-    * Get the last-updated timestamps for your keys (if the provider supports it)
+- **Metadata Support**
+  - Retrieve last-updated timestamps (if supported by provider)
 
 ---
 
-## 📝 Usage
+## Usage
 
-### 🍰 Creating a Persistent Dictionary
+### Creating a Persistent Dictionary
 
 ```csharp
 using PinkRoosterAi.Persistify;
 using PinkRoosterAi.Persistify.Builders;
 
-// JSON file provider
 var provider = PersistenceProviderBuilder.JsonFile<int>()
     .WithFilePath("data.json")
     .WithBatch(batchSize: 10, batchInterval: TimeSpan.FromSeconds(5))
@@ -66,33 +55,23 @@ var provider = PersistenceProviderBuilder.JsonFile<int>()
 var dict = new PersistentDictionary<int>(provider);
 await dict.InitializeAsync();
 
-// Add and persist
 await dict.AddAndSaveAsync("foo", 42);
-
-// Remove and persist
 await dict.RemoveAndSaveAsync("foo");
 ```
 
----
-
-### ⏳ Using `CachingPersistentDictionary`
+### Using CachingPersistentDictionary
 
 ```csharp
 using PinkRoosterAi.Persistify;
 
-// 10-minute TTL for automatic cleanup
 var cachingDict = new CachingPersistentDictionary<int>(provider, TimeSpan.FromMinutes(10));
 await cachingDict.InitializeAsync();
 
-// Add something, let the TTL do its magic
 await cachingDict.AddAndSaveAsync("key1", 42);
-
-// After 10 minutes of no access, "key1" is evicted from memory & persistence
+// "key1" will be evicted after 10 minutes of no access
 ```
 
----
-
-### 🗄️ For Database Persistence
+### Database Persistence
 
 ```csharp
 using PinkRoosterAi.Persistify.Builders;
@@ -110,84 +89,44 @@ await dbDict.InitializeAsync();
 
 ---
 
-## 🧩 Dependencies
+## Dependencies
 
-* [.NET 9.0](https://dotnet.microsoft.com/) 🦾
-* [Polly](https://github.com/App-vNext/Polly) (for retries)
-* [ServiceStack.OrmLite](https://github.com/ServiceStack/ServiceStack.OrmLite) (for DB persistence)
-* [Microsoft.Extensions.Logging.Abstractions](https://www.nuget.org/packages/Microsoft.Extensions.Logging.Abstractions)
-
----
-
-## 🔍 Components
-
-* `PersistentDictionary<TValue>` — async, batch, and retry persistence with string keys
-* `CachingPersistentDictionary<TValue>` — TTL-based eviction for stale keys
-* `JsonFilePersistenceProvider<TValue>` — JSON-backed storage
-* `DatabasePersistenceProvider<TValue>` — SQL-based storage (SQLite/PostgreSQL)
-* `IPersistenceProvider<TValue>` — your pluggable persistence abstraction
-* `IPersistenceOptions` — tune batching, retries, and more
-* `IPersistenceMetadataProvider` — timestamps if you want them
-* *Builder* classes — because configuration should be a delight ✨
+- [.NET 9.0](https://dotnet.microsoft.com/)
+- [Polly](https://github.com/App-vNext/Polly)
+- [ServiceStack.OrmLite](https://github.com/ServiceStack/ServiceStack.OrmLite)
+- [Microsoft.Extensions.Logging.Abstractions](https://www.nuget.org/packages/Microsoft.Extensions.Logging.Abstractions)
 
 ---
 
-## 🔄 Simplified API (v2.0+)
+## Components
 
-Starting with version 2.0, PinkRoosterAi.Persistify has been simplified to use **string keys only**. This change:
-
-* **Reduces complexity** — No more generic `TKey` parameter confusion
-* **Improves usability** — String keys are the most common use case
-* **Maintains performance** — All the same great features, simpler API
-
-### Migration from v1.x
-
-**Before (v1.x):**
-```csharp
-var provider = PersistenceProviderBuilder.JsonFile<string, int>().Build();
-var dict = new PersistentDictionary<string, int>(provider);
-```
-
-**After (v2.0+):**
-```csharp
-var provider = PersistenceProviderBuilder.JsonFile<int>().Build();
-var dict = new PersistentDictionary<int>(provider);
-```
-
-Simply remove the `TKey` generic parameter — keys are now always strings! 🎉
-
-### 🏭 New Factory Methods
-
-Providers now include convenient factory methods for creating dictionaries:
-
-```csharp
-// Create dictionaries directly from providers
-var provider = PersistenceProviderBuilder.JsonFile<int>().WithFilePath("data.json").Build();
-
-var dict = provider.CreateDictionary();
-var cachingDict = provider.CreateCachingDictionary(TimeSpan.FromMinutes(10));
-```
+- `PersistentDictionary<TValue>` — async, batch, and retry persistence with string keys
+- `CachingPersistentDictionary<TValue>` — TTL-based eviction for stale keys
+- `JsonFilePersistenceProvider<TValue>` — JSON-backed storage
+- `DatabasePersistenceProvider<TValue>` — SQL-based storage (SQLite/PostgreSQL)
+- `IPersistenceProvider<TValue>` — pluggable persistence abstraction
+- `IPersistenceOptions` — configure batching, retries, and more
+- `IPersistenceMetadataProvider` — last-updated timestamps (if supported)
+- Builder classes for easy configuration
 
 ---
 
-## ⚠️ Notes
+## Notes
 
-* All mutation methods are async — don’t forget to `await` them!
-* Always call `InitializeAsync()` before using the dictionary
-* There are no synchronous mutation methods (by design!)
-* Need to customize? Implement your own `IPersistenceProvider<TValue>`. Boom. 💥
-
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](https://opensource.org/licenses/MIT). 🪪 Feel free to use, fork, and
-modify as you see fit!
+- All mutation methods are async — always `await` them
+- Always call `InitializeAsync()` before using the dictionary
+- No synchronous mutation methods
+- Custom providers can be implemented via `IPersistenceProvider<TValue>`
 
 ---
 
-## 👋 Feedback welcome!
+## License
 
-If you have ideas or suggestions to make Persistify even more awesome, open an issue or send a PR! Contributions are
-always loved. 💖
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+
+---
+
+## Feedback
+
+Contributions and suggestions are welcome! Open an issue or send a PR.
 
