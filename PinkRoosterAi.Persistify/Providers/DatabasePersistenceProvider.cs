@@ -48,7 +48,10 @@ public class DatabasePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<TKey, TValue>();
 
-        var rows = await db.SelectAsync<TableRow>(cancellationToken).ConfigureAwait(false);
+        // Use the actual table name, not TableRow type
+        string sql = $"SELECT {Options.KeyColumnName}, {Options.ValueColumnName} FROM {Options.TableName}";
+        var rows = await db.SelectAsync<(string Key, string Value)>(sql, cancellationToken).ConfigureAwait(false);
+
         foreach (var row in rows)
         {
             bool keyOk = TryConvertKey(row.Key, out TKey key, out Exception? keyEx);
