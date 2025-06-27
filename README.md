@@ -1,4 +1,6 @@
-<img align="center" src="img/logo_transparent.png" alt="PinkRooster Logo" style="width:200px;float: left; margin-right: 10px;" />
+<div align="center">
+  <img src="img/logo_transparent.png" alt="PinkRoosterAi.Persistify Logo" width="300">
+</div>
 
 # PinkRoosterAi.Persistify
 
