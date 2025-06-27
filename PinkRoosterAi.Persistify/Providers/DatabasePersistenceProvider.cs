@@ -48,8 +48,8 @@ public class DatabasePersistenceProvider<TKey, TValue> : IPersistenceProvider<TK
         using IDbConnection? db = await _dbFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<TKey, TValue>();
 
-        var rows = await db.SelectAsync<TableRow>(cancellationToken).ConfigureAwait(false);
-        foreach (TableRow? row in rows)
+        var rows = await db.SelectAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var row in rows)
         {
             bool keyOk = TryConvertKey(row.Key, out TKey key, out Exception? keyEx);
             bool valueOk = TryConvertValue(row.Value, out TValue value, out Exception? valueEx);
@@ -239,6 +239,7 @@ CREATE TABLE IF NOT EXISTS {Quote(Options.TableName)} (
     {
         public string Key { get; set; } = string.Empty;
         public string Value { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
     }
 
