@@ -290,7 +290,7 @@ public class PersistentDictionary<TKey, TValue> : Dictionary<TKey, TValue>, IDis
         }
         lock (_syncRoot)
         {
-            base.Add(key, value);
+            base[key] = value;
         }
         // buffer this change for a batch flush
         TrackMutation();
