@@ -12,6 +12,8 @@ class Program
         Console.WriteLine("Persistify Sample Console Application");
 
         // 1. JSON-Backed Persistence
+        // What it shows: Creating a persistent dictionary backed by a JSON file, with batched writes and automatic flushing.
+        // Why it's cool: Simplifies local data storage with human-readable files, supports batching for performance, and ensures data durability with minimal code.
         Console.WriteLine("\n--- JSON-Backed Persistence ---");
         var jsonProvider = PersistenceProviderBuilder.JsonFile<string, int>()
             .WithFilePath("persistify_data.json")
@@ -37,6 +39,8 @@ class Program
         }
 
         // 2. Database-Backed Persistence
+        // What it shows: Using a database (via SQL) as the persistence backend, with support for upsert and delete operations.
+        // Why it's cool: Enables scalable, reliable storage for large datasets, with transactional integrity and flexible schema control, suitable for production environments.
         Console.WriteLine("\n--- Database-Backed Persistence ---");
         var dbProvider = PersistenceProviderBuilder.Database<string, int>()
             .WithConnectionString("Data Source=sample.db;")
@@ -64,6 +68,8 @@ class Program
         }
 
         // 3. Automatic Retry & Error Events
+        // What it shows: Handling transient failures with Polly retries and event-driven error reporting.
+        // Why it's cool: Adds robustness to persistence operations, allowing graceful recovery from intermittent issues and centralized error handling.
         Console.WriteLine("\n--- Automatic Retry & Error Events ---");
         var badJsonProvider = PersistenceProviderBuilder.JsonFile<string, int>()
             .WithFilePath("?:/invalid_path.json")
@@ -87,6 +93,8 @@ class Program
         }
 
         // 4. Batched Commits
+        // What it shows: Buffering multiple mutations and flushing them together either when batch size is reached or after a timeout.
+        // Why it's cool: Significantly improves performance by reducing I/O operations, ideal for high-throughput scenarios.
         Console.WriteLine("\n--- Batched Commits ---");
         var batchProvider = PersistenceProviderBuilder.JsonFile<string, int>()
             .WithFilePath("batch_data.json")
@@ -112,6 +120,8 @@ class Program
         await Task.Delay(TimeSpan.FromSeconds(6));
 
         // 5. In-Memory Caching with TTL Eviction
+        // What it shows: Caching data in memory with a TTL, automatically evicting stale entries.
+        // Why it's cool: Combines fast in-memory access with persistence, ensuring data freshness and reducing load on storage backends.
         Console.WriteLine("\n--- In-Memory Caching with TTL Eviction ---");
         var cacheProvider = PersistenceProviderBuilder.JsonFile<string, int>()
             .WithFilePath("cache_data.json")
