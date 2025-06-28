@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # =============================================================================
-# NuGet Publishing Script for .NET Projects
+# NuGet Publishing Script for .NET Projects with Git Integration
 # =============================================================================
-# This script automates the process of building and publishing .NET packages
-# to NuGet with version override, validation, and comprehensive error handling.
+# This script automates the complete process of building, publishing .NET packages
+# to NuGet, and pushing changes to git with automatic tagging.
 #
 # Usage:
 #   ./publish-nuget.sh <version> [api-key] [project-file] [nuget-source]
@@ -17,6 +17,14 @@
 #
 # Environment Variables:
 #   NUGET_API_KEY - API key for NuGet publishing (if not provided as argument)
+#
+# Automated Features:
+#   ✓ Build project in Release mode with version override
+#   ✓ Create NuGet package with README validation
+#   ✓ Publish package to NuGet with comprehensive validation
+#   ✓ Create git tag for the version automatically
+#   ✓ Push changes and tags to remote repository
+#   ✓ Comprehensive error handling and validation
 #
 # Examples:
 #   ./publish-nuget.sh "1.0.0"
@@ -89,11 +97,20 @@ Examples:
   $SCRIPT_NAME "1.0.2" "" "./src/MyLib/MyLib.csproj"
   NUGET_API_KEY="key" $SCRIPT_NAME "1.0.3"
 
+Automated Features:
+  ✓ Build project in Release mode with version override
+  ✓ Create NuGet package with README validation
+  ✓ Publish package to NuGet with comprehensive validation
+  ✓ Create git tag for the version automatically
+  ✓ Push changes and tags to remote repository
+
 Notes:
   - Script exits on any command failure (set -e enabled)
   - All paths are resolved relative to the project root
   - .nupkg files are output to $NUPKGS_DIR directory
   - Version validation ensures semantic versioning compliance
+  - Git integration requires a git repository with 'origin' remote
+  - Uncommitted changes will be warned about but not included in push
 EOF
 }
 
@@ -229,18 +246,33 @@ build_package() {
     print_step "Creating package output directory: '$output_dir'"
     mkdir -p "$output_dir"
     
-    print_step "Building NuGet package in Release mode"
+    print_step "Building project in Release mode"
     
-    if ! dotnet pack "$project_file" \
+    # First build the project in Release configuration
+    if ! dotnet build "$project_file" \
         --configuration Release \
-        --output "$output_dir" \
         --verbosity normal; then
-        print_error "Failed to build NuGet package"
+        print_error "Failed to build project in Release mode"
         print_error "Check build errors above and ensure project compiles successfully"
         return 1
     fi
     
-    print_success "Package built successfully"
+    print_success "Project built successfully in Release mode"
+    
+    print_step "Creating NuGet package"
+    
+    # Then pack the already built project
+    if ! dotnet pack "$project_file" \
+        --configuration Release \
+        --no-build \
+        --output "$output_dir" \
+        --verbosity normal; then
+        print_error "Failed to create NuGet package"
+        print_error "Check packaging errors above"
+        return 1
+    fi
+    
+    print_success "NuGet package created successfully"
 }
 
 # Locate the generated .nupkg file
@@ -278,6 +310,70 @@ find_package_file() {
     echo "$package_file"
 }
 
+# Validate package contents and README inclusion
+validate_package_contents() {
+    local package_file="$1"
+    
+    print_step "Validating package contents and README inclusion"
+    
+    # Check if unzip is available
+    if ! command -v unzip &> /dev/null; then
+        print_warning "unzip not available, skipping package validation"
+        return 0
+    fi
+    
+    # List package contents
+    local package_contents
+    package_contents=$(unzip -l "$package_file" 2>/dev/null)
+    
+    if [[ $? -ne 0 ]]; then
+        print_error "Failed to read package contents"
+        return 1
+    fi
+    
+    # Check for README.md
+    if echo "$package_contents" | grep -q "README.md"; then
+        print_success "✓ README.md included in package"
+        
+        # Extract README size for validation
+        local readme_size
+        readme_size=$(echo "$package_contents" | grep "README.md" | awk '{print $1}')
+        print_info "README.md size: $readme_size bytes"
+        
+        if [[ $readme_size -gt 1000 ]]; then
+            print_success "✓ README.md appears to have substantial content"
+        else
+            print_warning "README.md seems small ($readme_size bytes) - verify content"
+        fi
+    else
+        print_error "✗ README.md not found in package"
+        print_error "README will not be displayed on NuGet"
+        return 1
+    fi
+    
+    # Check for logo/icon files
+    if echo "$package_contents" | grep -q "logo_transparent_small.png"; then
+        print_success "✓ Package icon included"
+    else
+        print_warning "Package icon not found"
+    fi
+    
+    # Verify nuspec contains README reference
+    local nuspec_content
+    nuspec_content=$(unzip -p "$package_file" "*.nuspec" 2>/dev/null)
+    
+    if echo "$nuspec_content" | grep -q "<readme>README.md</readme>"; then
+        print_success "✓ README properly configured in package metadata"
+        print_info "README will be automatically displayed on NuGet package page"
+    else
+        print_warning "README not properly configured in package metadata"
+        print_warning "README may not display automatically on NuGet"
+    fi
+    
+    print_success "Package validation completed"
+    return 0
+}
+
 # Publish package to NuGet source
 publish_package() {
     local package_file="$1"
@@ -291,8 +387,7 @@ publish_package() {
     if ! dotnet nuget push "$package_file" \
         --api-key "$api_key" \
         --source "$nuget_source" \
-        --skip-duplicate \
-        --verbosity normal; then
+        --skip-duplicate; then
         print_error "Failed to publish package to NuGet"
         print_error "Common causes:"
         print_error "  - Invalid API key"
@@ -313,6 +408,122 @@ cleanup() {
     find . -name "*.tmp" -type f -delete 2>/dev/null || true
     
     print_info "Cleanup completed"
+}
+
+# Check git repository status and validate for pushing
+check_git_status() {
+    print_step "Checking git repository status"
+    
+    # Check if we're in a git repository
+    if ! git rev-parse --git-dir &> /dev/null; then
+        print_error "Not in a git repository"
+        print_error "Git push functionality requires a git repository"
+        return 1
+    fi
+    
+    # Check if there are uncommitted changes
+    if ! git diff-index --quiet HEAD --; then
+        print_warning "There are uncommitted changes in the repository"
+        print_info "Uncommitted files:"
+        git status --porcelain | sed 's/^/  /'
+        print_warning "These changes will not be included in the git push"
+    fi
+    
+    # Check current branch
+    local current_branch
+    current_branch=$(git branch --show-current)
+    print_info "Current branch: $current_branch"
+    
+    # Check if remote exists
+    if ! git remote get-url origin &> /dev/null; then
+        print_warning "No 'origin' remote configured"
+        print_warning "Git push will be skipped"
+        return 1
+    fi
+    
+    # Check if branch has upstream
+    if ! git rev-parse --abbrev-ref @{upstream} &> /dev/null 2>&1; then
+        print_info "Branch '$current_branch' has no upstream"
+        print_info "Will push with --set-upstream"
+    fi
+    
+    print_success "Git repository status validated"
+    return 0
+}
+
+# Create git tag for the version
+create_version_tag() {
+    local version="$1"
+    local tag_name="v$version"
+    
+    print_step "Creating git tag for version '$version'"
+    
+    # Check if tag already exists
+    if git tag -l | grep -q "^$tag_name$"; then
+        print_warning "Tag '$tag_name' already exists"
+        print_info "Skipping tag creation"
+        return 0
+    fi
+    
+    # Create annotated tag with release information
+    local tag_message="Version $version
+
+🚀 NuGet Package Release
+- Package: PinkRoosterAi.Persistify
+- Version: $version
+- Published: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+Generated by publish-nuget.sh script"
+    
+    if git tag -a "$tag_name" -m "$tag_message"; then
+        print_success "Created git tag: $tag_name"
+        echo "$tag_name"
+        return 0
+    else
+        print_error "Failed to create git tag"
+        return 1
+    fi
+}
+
+# Push changes and tags to remote repository
+push_to_remote() {
+    local version="$1"
+    local tag_name="v$version"
+    
+    print_step "Pushing changes and tags to remote repository"
+    
+    # Get current branch
+    local current_branch
+    current_branch=$(git branch --show-current)
+    
+    # Push branch with upstream if needed
+    if ! git rev-parse --abbrev-ref @{upstream} &> /dev/null 2>&1; then
+        print_info "Setting upstream and pushing branch '$current_branch'"
+        if ! git push --set-upstream origin "$current_branch"; then
+            print_error "Failed to push branch with upstream"
+            return 1
+        fi
+    else
+        print_info "Pushing branch '$current_branch'"
+        if ! git push; then
+            print_error "Failed to push branch"
+            return 1
+        fi
+    fi
+    
+    print_success "Branch pushed successfully"
+    
+    # Push tags
+    print_info "Pushing tags to remote"
+    if git push --tags; then
+        print_success "Tags pushed successfully"
+        print_info "Tag '$tag_name' is now available on remote repository"
+    else
+        print_error "Failed to push tags"
+        return 1
+    fi
+    
+    return 0
 }
 
 # =============================================================================
@@ -370,8 +581,38 @@ main() {
         exit 1
     fi
     
+    # Validate package contents and README inclusion
+    validate_package_contents "$PACKAGE_FILE"
+    if [[ $? -ne 0 ]]; then
+        print_warning "Package validation failed, but continuing with publish"
+    fi
+    
     # Publish the package
     publish_package "$PACKAGE_FILE" "$API_KEY" "$NUGET_SOURCE"
+    
+    # Check git status and prepare for push
+    echo
+    if check_git_status; then
+        # Create version tag
+        TAG_NAME=$(create_version_tag "$VERSION")
+        if [[ $? -eq 0 && -n "$TAG_NAME" ]]; then
+            print_info "Created tag: $TAG_NAME"
+            
+            # Push to remote repository
+            if push_to_remote "$VERSION"; then
+                print_success "✓ Git push completed successfully"
+                print_info "Version $VERSION is now available on remote repository"
+            else
+                print_error "Git push failed, but NuGet package was published successfully"
+                print_warning "Manual git push may be required"
+            fi
+        else
+            print_warning "Failed to create git tag, skipping git push"
+        fi
+    else
+        print_warning "Git validation failed, skipping automatic git push"
+        print_info "You may need to manually push changes and create tags"
+    fi
     
     # Clean up
     cleanup
