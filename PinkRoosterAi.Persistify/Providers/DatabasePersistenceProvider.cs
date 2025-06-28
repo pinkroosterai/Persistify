@@ -166,17 +166,13 @@ ON CONFLICT({Quote(Options.KeyColumnName)}) DO UPDATE SET
 
     public PersistentDictionary<TValue> CreateDictionary<TValue>(string dictionaryName, ILogger<PersistentDictionary<TValue>>? logger = null)
     {
-        var adapter = new PersistenceProviderAdapter<TValue>(this);
-        return logger is null ? new PersistentDictionary<TValue>(adapter, dictionaryName)
-                              : new PersistentDictionary<TValue>(adapter, dictionaryName, logger);
+        return ProviderFactory.CreateDictionary(this, dictionaryName, logger);
     }
 
     public CachingPersistentDictionary<TValue> CreateCachingDictionary<TValue>(string dictionaryName, TimeSpan ttl, 
                       ILogger<PersistentDictionary<TValue>>? logger = null)
     {
-        var adapter = new PersistenceProviderAdapter<TValue>(this);
-        return logger is null ? new CachingPersistentDictionary<TValue>(adapter, dictionaryName, ttl)
-                              : new CachingPersistentDictionary<TValue>(adapter, dictionaryName, ttl, logger);
+        return ProviderFactory.CreateCachingDictionary(this, dictionaryName, ttl, logger);
     }
 
     // Legacy support for generic interface

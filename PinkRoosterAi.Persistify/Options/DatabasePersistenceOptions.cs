@@ -4,15 +4,15 @@ namespace PinkRoosterAi.Persistify.Options;
 
 public class DatabasePersistenceOptions : IPersistenceOptions
 {
-    public required string ConnectionString { get; init; }
+    public string ConnectionString { get; set; } = string.Empty;
 
-    public string KeyColumnName { get; init; } = "Key";
-    public string ValueColumnName { get; init; } = "Value";
-    public int MaxRetryAttempts { get; init; } = 3;
-    public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMilliseconds(100);
-    public bool ThrowOnPersistenceFailure { get; init; } = false;
+    public string KeyColumnName { get; set; } = "Key";
+    public string ValueColumnName { get; set; } = "Value";
+    public int MaxRetryAttempts { get; set; } = 3;
+    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(100);
+    public bool ThrowOnPersistenceFailure { get; set; } = false;
 
     // Default to 1 so old behavior stays the same until you opt in
-    public int BatchSize { get; init; } = 1;
-    public TimeSpan BatchInterval { get; init; } = TimeSpan.Zero;
+    public int BatchSize { get; set; } = 1;
+    public TimeSpan BatchInterval { get; set; } = TimeSpan.Zero;
 }

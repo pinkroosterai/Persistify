@@ -1,4 +1,3 @@
-﻿using System.Reflection;
 using Microsoft.Extensions.Logging;
 using PinkRoosterAi.Persistify.Abstractions;
 
@@ -11,11 +10,12 @@ public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>,
     private readonly Dictionary<string, DateTime> _lastUpdatedAt = new Dictionary<string, DateTime>();
     private readonly TimeSpan _ttl;
     private readonly Timer _cleanupTimer;
+    private readonly ILogger<PersistentDictionary<TValue>>? _logger;
     private bool _disposed;
 
     public CachingPersistentDictionary(IPersistenceProvider<TValue> persistenceProvider, string dictionaryName,
         TimeSpan cachedTimeBeforeEviction)
-        : base(persistenceProvider,dictionaryName)
+        : base(persistenceProvider, dictionaryName)
     {
         if (cachedTimeBeforeEviction <= TimeSpan.Zero)
             throw new ArgumentException("TTL must be positive.", nameof(cachedTimeBeforeEviction));
@@ -24,14 +24,15 @@ public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>,
         _cleanupTimer = new Timer(CleanupCallback, null, _ttl, _ttl);
     }
 
-    public CachingPersistentDictionary(IPersistenceProvider<TValue> persistenceProvider,string dictionaryName,
-        TimeSpan cachedTimeBeforeEviction,  ILogger<PersistentDictionary<TValue>>? logger)
-        : base(persistenceProvider,dictionaryName, logger)
+    public CachingPersistentDictionary(IPersistenceProvider<TValue> persistenceProvider, string dictionaryName,
+        TimeSpan cachedTimeBeforeEviction, ILogger<PersistentDictionary<TValue>>? logger)
+        : base(persistenceProvider, dictionaryName, logger)
     {
         if (cachedTimeBeforeEviction <= TimeSpan.Zero)
             throw new ArgumentException("TTL must be positive.", nameof(cachedTimeBeforeEviction));
             
         _ttl = cachedTimeBeforeEviction;
+        _logger = logger;
         _cleanupTimer = new Timer(CleanupCallback, null, _ttl, _ttl);
     }
 
@@ -47,7 +48,7 @@ public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>,
 
         if (PersistenceProvider is IPersistenceMetadataProvider metaProvider)
         {
-            var updatedDict = await metaProvider.LoadLastUpdatedAsync(DictionaryName,ct).ConfigureAwait(false);
+            var updatedDict = await metaProvider.LoadLastUpdatedAsync(DictionaryName, ct).ConfigureAwait(false);
             lock (_cacheLock)
             {
                 foreach (var kvp in updatedDict) _lastUpdatedAt[kvp.Key] = kvp.Value;
@@ -123,7 +124,7 @@ public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>,
             catch (Exception ex)
             {
                 // Log but don't rethrow to avoid breaking eviction
-                Console.WriteLine($"Failed to persist removal of key '{key}': {ex.Message}");
+                _logger?.LogWarning(ex, "Failed to persist removal of key '{Key}' during eviction", key);
             }
         });
         
@@ -139,7 +140,7 @@ public class CachingPersistentDictionary<TValue> : PersistentDictionary<TValue>,
         catch (Exception ex)
         {
             // Log error but don't crash the timer
-            Console.WriteLine($"Error during scheduled cleanup: {ex.Message}");
+            _logger?.LogError(ex, "Error during scheduled cleanup in CachingPersistentDictionary");
         }
     }
     
