@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # =============================================================================
-# NuGet Publishing Script for .NET Projects with Git Integration
+# NuGet Publishing Script for .NET Projects with Git and GitHub Integration
 # =============================================================================
 # This script automates the complete process of building, publishing .NET packages
-# to NuGet, and pushing changes to git with automatic tagging.
+# to NuGet, pushing changes to git with automatic tagging, and creating GitHub releases.
 #
 # Usage:
 #   ./publish-nuget.sh <version> [api-key] [project-file] [nuget-source]
@@ -18,19 +18,24 @@
 # Environment Variables:
 #   NUGET_API_KEY - API key for NuGet publishing (if not provided as argument)
 #
+# Dependencies:
+#   Required: dotnet, git, realpath
+#   Optional: gh (GitHub CLI) - for automatic GitHub release creation
+#
 # Automated Features:
 #   ✓ Build project in Release mode with version override
 #   ✓ Create NuGet package with README validation
 #   ✓ Publish package to NuGet with comprehensive validation
 #   ✓ Create git tag for the version automatically
 #   ✓ Push changes and tags to remote repository
+#   ✓ Create GitHub release with changelog and package assets
 #   ✓ Comprehensive error handling and validation
 #
 # Examples:
-#   ./publish-nuget.sh "1.0.0"
-#   ./publish-nuget.sh "1.0.1" "your-api-key-here"
-#   ./publish-nuget.sh "1.0.2" "" "./src/MyLib/MyLib.csproj"
-#   NUGET_API_KEY="key" ./publish-nuget.sh "1.0.3"
+#   ./publish-nuget.sh "1.0.5"
+#   ./publish-nuget.sh "1.0.6" "your-api-key-here"
+#   ./publish-nuget.sh "1.0.7" "" "./src/MyLib/MyLib.csproj"
+#   NUGET_API_KEY="key" ./publish-nuget.sh "1.0.8"
 # =============================================================================
 
 # Exit immediately on any command failure
@@ -134,6 +139,7 @@ validate_version() {
 # Check if required tools are available
 check_dependencies() {
     local missing_tools=()
+    local optional_tools=()
     
     if ! command -v dotnet &> /dev/null; then
         missing_tools+=("dotnet")
@@ -143,10 +149,23 @@ check_dependencies() {
         missing_tools+=("realpath")
     fi
     
+    if ! command -v git &> /dev/null; then
+        missing_tools+=("git")
+    fi
+    
+    if ! command -v gh &> /dev/null; then
+        optional_tools+=("gh (GitHub CLI - required for automatic GitHub releases)")
+    fi
+    
     if [ ${#missing_tools[@]} -gt 0 ]; then
         print_error "Missing required tools: ${missing_tools[*]}"
         print_error "Please install the missing dependencies and try again"
         return 1
+    fi
+    
+    if [ ${#optional_tools[@]} -gt 0 ]; then
+        print_warning "Optional tools not found: ${optional_tools[*]}"
+        print_info "Install GitHub CLI (gh) for automatic GitHub release creation"
     fi
     
     return 0
@@ -246,31 +265,29 @@ build_package() {
     print_step "Creating package output directory: '$output_dir'"
     mkdir -p "$output_dir"
     
-    print_step "Building project in Release mode"
+    print_step "Building and creating NuGet package in Release mode"
     
-    # First build the project in Release configuration
-    if ! dotnet build "$project_file" \
-        --configuration Release \
-        --verbosity normal; then
-        print_error "Failed to build project in Release mode"
-        print_error "Check build errors above and ensure project compiles successfully"
-        return 1
-    fi
-    
-    print_success "Project built successfully in Release mode"
-    
-    print_step "Creating NuGet package"
-    
-    # Then pack the already built project
+    # Build and pack in one step to ensure output directory is respected
     if ! dotnet pack "$project_file" \
         --configuration Release \
-        --no-build \
         --output "$output_dir" \
         --verbosity normal; then
-        print_error "Failed to create NuGet package"
-        print_error "Check packaging errors above"
+        print_error "Failed to build and create NuGet package"
+        print_error "Check build and packaging errors above"
         return 1
     fi
+    
+    # Handle projects with GeneratePackageOnBuild=true
+    # The package might be created in bin/Debug or bin/Release instead of output dir
+    local project_dir
+    project_dir="$(dirname "$project_file")"
+    
+    # Check if package was created in bin directories and move to output dir
+    for bin_dir in "$project_dir/bin/Debug" "$project_dir/bin/Release"; do
+        if [[ -d "$bin_dir" ]]; then
+            find "$bin_dir" -name "*.nupkg" -exec mv {} "$output_dir/" \; 2>/dev/null || true
+        fi
+    done
     
     print_success "NuGet package created successfully"
 }
@@ -281,7 +298,7 @@ find_package_file() {
     local version="$2"
     local project_name="$3"
     
-    print_step "Locating package file for version '$version'"
+    print_step "Locating package file for version '$version'" >&2
     
     # Try to find the package file with the specific version
     local package_pattern="$output_dir/${project_name}.${version}.nupkg"
@@ -291,9 +308,9 @@ find_package_file() {
     package_file=$(find "$output_dir" -name "*${version}.nupkg" -type f | head -n 1)
     
     if [[ -z "$package_file" || ! -f "$package_file" ]]; then
-        print_error "Package file not found: expected '*${version}.nupkg' in '$output_dir'"
-        print_error "Available packages:"
-        find "$output_dir" -name "*.nupkg" -type f | sed 's/^/  /' || echo "  (none found)"
+        print_error "Package file not found: expected '*${version}.nupkg' in '$output_dir'" >&2
+        print_error "Available packages:" >&2
+        find "$output_dir" -name "*.nupkg" -type f | sed 's/^/  /' >&2 || echo "  (none found)" >&2
         return 1
     fi
     
@@ -302,11 +319,11 @@ find_package_file() {
     package_filename="$(basename "$package_file")"
     
     if [[ ! "$package_filename" =~ $version ]]; then
-        print_error "Package file version mismatch: '$package_filename' does not contain '$version'"
+        print_error "Package file version mismatch: '$package_filename' does not contain '$version'" >&2
         return 1
     fi
     
-    print_success "Package file located: '$package_file'"
+    print_success "Package file located: '$package_file'" >&2
     echo "$package_file"
 }
 
@@ -316,20 +333,9 @@ validate_package_contents() {
     
     print_step "Validating package contents and README inclusion"
     
-    # Check if unzip is available
-    if ! command -v unzip &> /dev/null; then
-        print_warning "unzip not available, skipping package validation"
-        return 0
-    fi
-    
-    # List package contents
+    # List package contents - let it crash if unzip fails
     local package_contents
-    package_contents=$(unzip -l "$package_file" 2>/dev/null)
-    
-    if [[ $? -ne 0 ]]; then
-        print_error "Failed to read package contents"
-        return 1
-    fi
+    package_contents=$(unzip -l "$package_file")
     
     # Check for README.md
     if echo "$package_contents" | grep -q "README.md"; then
@@ -358,9 +364,9 @@ validate_package_contents() {
         print_warning "Package icon not found"
     fi
     
-    # Verify nuspec contains README reference
+    # Verify nuspec contains README reference - let it crash if it fails
     local nuspec_content
-    nuspec_content=$(unzip -p "$package_file" "*.nuspec" 2>/dev/null)
+    nuspec_content=$(unzip -p "$package_file" "*.nuspec")
     
     if echo "$nuspec_content" | grep -q "<readme>README.md</readme>"; then
         print_success "✓ README properly configured in package metadata"
@@ -526,6 +532,96 @@ push_to_remote() {
     return 0
 }
 
+# Create GitHub release with changelog and assets
+create_github_release() {
+    local version="$1"
+    local tag_name="v$version"
+    local package_file="$2"
+    
+    print_step "Creating GitHub release for version '$version'"
+    
+    # Check if GitHub CLI is available
+    if ! command -v gh &> /dev/null; then
+        print_error "GitHub CLI (gh) not found"
+        print_error "Install GitHub CLI to enable automatic release creation"
+        print_warning "Manual release creation required on GitHub"
+        return 1
+    fi
+    
+    # Check if user is authenticated
+    if ! gh auth status &> /dev/null; then
+        print_error "GitHub CLI not authenticated"
+        print_error "Run 'gh auth login' to authenticate with GitHub"
+        print_warning "Manual release creation required on GitHub"
+        return 1
+    fi
+    
+    # Extract release notes from CHANGELOG.md for this version
+    local release_notes=""
+    if [[ -f "CHANGELOG.md" ]]; then
+        print_info "Extracting release notes from CHANGELOG.md"
+        
+        # Extract content between this version and the next version marker
+        release_notes=$(awk "/^## \[$version\]/{flag=1;next} /^## \[/{flag=0} flag" CHANGELOG.md | sed '/^$/N;/^\n$/d' | head -n -1)
+        
+        if [[ -n "$release_notes" ]]; then
+            print_success "Release notes extracted successfully"
+        else
+            print_warning "No release notes found for version $version"
+            release_notes="Release $version
+
+🚀 **What's New**
+- Enhanced release automation with GitHub integration
+- Improved CI/CD pipeline and workflow tooling
+- Updated documentation and version management
+
+📦 **Installation**
+\`\`\`bash
+dotnet add package PinkRoosterAi.Persistify --version $version
+\`\`\`
+
+For full details, see the [CHANGELOG.md](https://github.com/pinkroosterai/Persistify/blob/main/CHANGELOG.md)."
+        fi
+    else
+        print_warning "CHANGELOG.md not found, using default release notes"
+        release_notes="Release $version - See repository for details"
+    fi
+    
+    # Create the release
+    print_info "Creating GitHub release with assets"
+    local release_title="Release $version"
+    
+    if gh release create "$tag_name" \
+        --title "$release_title" \
+        --notes "$release_notes" \
+        --verify-tag; then
+        print_success "GitHub release created successfully"
+        
+        # Upload package file as asset if it exists
+        if [[ -f "$package_file" ]]; then
+            print_info "Uploading NuGet package as release asset"
+            if gh release upload "$tag_name" "$package_file"; then
+                print_success "Package uploaded to release assets"
+            else
+                print_warning "Failed to upload package file as asset"
+            fi
+        fi
+        
+        # Get release URL
+        local release_url
+        release_url=$(gh release view "$tag_name" --json url --jq '.url')
+        if [[ -n "$release_url" ]]; then
+            print_success "GitHub release available at: $release_url"
+        fi
+        
+        return 0
+    else
+        print_error "Failed to create GitHub release"
+        print_error "Check GitHub CLI authentication and repository permissions"
+        return 1
+    fi
+}
+
 # =============================================================================
 # Main Execution Flow
 # =============================================================================
@@ -602,9 +698,20 @@ main() {
             if push_to_remote "$VERSION"; then
                 print_success "✓ Git push completed successfully"
                 print_info "Version $VERSION is now available on remote repository"
+                
+                # Create GitHub release
+                echo
+                print_step "Creating GitHub release"
+                if create_github_release "$VERSION" "$PACKAGE_FILE"; then
+                    print_success "✓ GitHub release created successfully"
+                    print_info "Release $VERSION is now available on GitHub"
+                else
+                    print_warning "GitHub release creation failed, but git push was successful"
+                    print_info "You can create the release manually on GitHub"
+                fi
             else
                 print_error "Git push failed, but NuGet package was published successfully"
-                print_warning "Manual git push may be required"
+                print_warning "Manual git push and GitHub release creation may be required"
             fi
         else
             print_warning "Failed to create git tag, skipping git push"
@@ -619,11 +726,14 @@ main() {
     
     # Final success message
     echo
-    print_success "=== NuGet Publishing Completed Successfully ==="
+    print_success "=== Release Process Completed Successfully ==="
     print_success "Package:     $(basename "$PACKAGE_FILE")"
     print_success "Version:     $VERSION"
-    print_success "Published:   $NUGET_SOURCE"
-    print_info "Package should be available on NuGet within a few minutes"
+    print_success "NuGet:       $NUGET_SOURCE"
+    print_success "Git Tag:     v$VERSION"
+    print_info "✓ Package should be available on NuGet within a few minutes"
+    print_info "✓ GitHub release created with changelog and assets"
+    print_info "✓ All automation completed successfully"
     
     return 0
 }

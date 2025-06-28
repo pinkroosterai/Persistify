@@ -5,6 +5,44 @@ All notable changes to PinkRoosterAi.Persistify will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2025-06-28
+
+### 🚀 **Added**
+
+#### **Release Automation**
+- **GitHub Releases Integration**: Automated GitHub release creation with changelog integration
+  - Automatic release notes generation from CHANGELOG.md
+  - Asset attachment for NuGet packages and documentation
+  - Tag-based release management with semantic versioning
+  - Release description formatting with markdown support
+
+#### **Project Management**
+- **Enhanced .gitignore**: Comprehensive ignore patterns for test files and databases
+  - Test database exclusion (*.db, *.sqlite, test_*.json)
+  - Temporary file filtering and build artifact management
+  - Environment-specific configuration ignoring
+
+### 🔧 **Changed**
+
+#### **Automation Workflow**
+- **Enhanced Publishing Script**: Extended `publish-nuget.sh` with GitHub release functionality
+  - GitHub CLI integration for automated release creation
+  - Release asset uploading with package files
+  - Comprehensive error handling for GitHub operations
+  - Combined NuGet and GitHub release workflow
+
+#### **Documentation Updates**
+- **Version Synchronization**: Updated all version references to 1.0.5
+- **Release Notes**: Enhanced PackageReleaseNotes for GitHub integration focus
+
+### 🐛 **Fixed**
+
+#### **Release Pipeline**
+- **GitHub Release Creation**: Resolved missing GitHub release functionality
+- **Workflow Integration**: Fixed incomplete automation in publishing process
+
+---
+
 ## [1.0.0] - 2025-06-28
 
 ### 🎉 **First Stable Release**

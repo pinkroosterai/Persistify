@@ -6,7 +6,7 @@
   **A robust, thread-safe, and extensible persistent dictionary library for .NET**
   
   [![.NET](https://img.shields.io/badge/.NET-9.0-blue)](https://dotnet.microsoft.com/)
-  [![NuGet](https://img.shields.io/badge/NuGet-1.0.0-orange)](https://www.nuget.org/packages/PinkRoosterAi.Persistify)
+  [![NuGet](https://img.shields.io/badge/NuGet-1.0.5-orange)](https://www.nuget.org/packages/PinkRoosterAi.Persistify)
   [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
   
 </div>
@@ -43,7 +43,7 @@ dotnet add package PinkRoosterAi.Persistify
 
 ### PackageReference
 ```xml
-<PackageReference Include="PinkRoosterAi.Persistify" Version="1.0.0" />
+<PackageReference Include="PinkRoosterAi.Persistify" Version="1.0.5" />
 ```
 
 ---

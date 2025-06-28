@@ -133,3 +133,47 @@ $RECYCLE.BIN/
 _NCrunch*
 .aider*
 CLAUDE.md
+
+# =========================
+# Test files and databases
+# =========================
+
+# Test databases
+*.db
+*.sqlite
+*.sqlite3
+test_*.json
+test_*.db
+test_*.sqlite
+
+# Temporary test files
+*.tmp
+*.temp
+test_*.*
+*_test.*
+
+# NuGet packages output
+nupkgs/
+*.nupkg
+*.snupkg
+
+# Environment-specific configs
+appsettings.local.json
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+# IDE and editor files
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.user
+*.userprefs
+project.lock.json
+project.fragment.lock.json
+artifacts/
