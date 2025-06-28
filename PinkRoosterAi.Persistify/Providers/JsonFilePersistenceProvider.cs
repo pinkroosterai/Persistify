@@ -96,8 +96,7 @@ public class JsonFilePersistenceProvider : IPersistenceProvider, IPersistencePro
                     }
                     catch (Exception ex)
                     {
-                        // Log warning and skip invalid entries - ideally use proper logging
-                        Console.WriteLine($"Warning: Failed to deserialize value for key '{kvp.Key}': {ex.Message}");
+                        // Skip invalid entries - logging would require injecting ILogger
                     }
                 }
             }
